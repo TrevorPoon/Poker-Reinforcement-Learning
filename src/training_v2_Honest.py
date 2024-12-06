@@ -23,12 +23,12 @@ plt.style.use('ggplot')
 # User's Input
 NUM_EPISODE = 100000000
 LOG_INTERVAL = 100
-TITLE = 'DQN_vs_AllCall' # 'DQN_vs_AllCall' 'DQN_vs_DQN'
+TITLE = 'DQN_vs_Honest' # 'DQN_vs_AllCall' 'DQN_vs_DQN' 'DQN_vs_Honest'
 TRAINING = True
 NUM_OF_AGENTS = 1
 
 # Initialisation
-NUM_OF_AGENTS = 6 if TITLE == 'DQN_vs_DQN' else 1
+NUM_OF_AGENTS = 2 if TITLE == 'DQN_vs_DQN' else 1
 accum_reward = 0
 subprocess.run(["python", "src/Utils/Clear.py"], check=True)
 
@@ -91,7 +91,7 @@ for i in range(NUM_OF_AGENTS):
     config.register_player(name=f"p{i+1}", algorithm=training_agents[i])
 
 for i in range(NUM_OF_AGENTS+1, 7):
-    config.register_player(name=f"p{i+1}", algorithm=AllCallPlayer())
+    config.register_player(name=f"p{i+1}", algorithm=HonestPlayer())
 
 def reset_to_zero(d):
     for key, value in d.items():
@@ -199,7 +199,6 @@ for i in range(0, NUM_EPISODE):
                 exit()
 
         if i + 1 % 10000 == 0:
-
             gc.collect()
         
 

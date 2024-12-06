@@ -16,7 +16,7 @@ for i, target_file in enumerate(target_files, start=1):
         file_contents = file.read()
         
     # Replace 'DQNPlayer' with 'DQNPlayer{i}' in the content
-    new_contents = file_contents.replace('class DQNPlayer(QLearningPlayer)', f'class DQNPlayer{i}(QLearningPlayer)')
+    new_contents = file_contents.replace('class DQNPlayer(BasePokerPlayer)', f'class DQNPlayer{i}(BasePokerPlayer)')
     
     # Write the modified content back to the file
     with open(target_file, 'w') as file:
