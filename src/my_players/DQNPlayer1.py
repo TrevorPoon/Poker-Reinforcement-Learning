@@ -958,6 +958,7 @@ class DQNPlayer1(BasePokerPlayer):
                 min_raise = action['amount']['min']
                 max_raise = action['amount']['max']
 
+
                 for raisesize in self.raisesizes:
             
                     raiseamount = raisesize * pot_size
@@ -979,6 +980,7 @@ class DQNPlayer1(BasePokerPlayer):
                 final_amount = {**min_value, **sorted_amount, **max_value}
                 # Update the original data with sorted values
                 action['amount'] = final_amount
+        
 
         action = self.eps_greedy_policy(self.state, round_state['seats'][(self.player_id + 1) % 6], valid_actions,
                                         self.epsilon)
@@ -1024,6 +1026,10 @@ class DQNPlayer1(BasePokerPlayer):
 
         
         stats_action = action
+        # print(self.uuid)
+        # print(round_state)
+        # print(action, amount)
+
         if action == "call" and amount == 0:
             stats_action = 'check'
 

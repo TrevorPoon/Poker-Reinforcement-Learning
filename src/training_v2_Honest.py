@@ -21,16 +21,16 @@ import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 
 # User's Input
-NUM_EPISODE = 100000000
+NUM_EPISODE = 10000000
 LOG_INTERVAL = 100
 TITLE = 'DQN_vs_Honest' # 'DQN_vs_AllCall' 'DQN_vs_DQN' 'DQN_vs_Honest'
 TRAINING = True
 NUM_OF_AGENTS = 1
 
 # Initialisation
-NUM_OF_AGENTS = 2 if TITLE == 'DQN_vs_DQN' else 1
+NUM_OF_AGENTS = 6 if TITLE == 'DQN_vs_DQN' else 1
 accum_reward = 0
-subprocess.run(["python", "src/Utils/Clear.py"], check=True)
+subprocess.run(["python", "src/utils/Clear.py"], check=True)
 
 # Declaration
 vpip_history, pfr_history, three_bet_history, loss_history, reward_history = [], [], [], [], []
@@ -84,13 +84,13 @@ else:
                         DQNPlayer6(dqn_paths[5]['model'], dqn_paths[5]['optimizer'], TRAINING)]
 
 # Set up configuration
-config = setup_config(max_round=6, initial_stack=100, small_blind_amount=0.5)
+config = setup_config(max_round=36, initial_stack=100, small_blind_amount=0.5)
 
 # Register each player with their respective DQNPlayer instance
 for i in range(NUM_OF_AGENTS):
     config.register_player(name=f"p{i+1}", algorithm=training_agents[i])
 
-for i in range(NUM_OF_AGENTS+1, 7):
+for i in range(NUM_OF_AGENTS, 6):
     config.register_player(name=f"p{i+1}", algorithm=HonestPlayer())
 
 def reset_to_zero(d):
