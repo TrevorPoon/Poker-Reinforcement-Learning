@@ -25,6 +25,8 @@ class HonestPlayer(BasePokerPlayer):
                 action = valid_actions[1]
             else: action = valid_actions[0]  # fetch FOLD action info
 
+
+
         return action['action'], action['amount']
 
     def receive_game_start_message(self, game_info):

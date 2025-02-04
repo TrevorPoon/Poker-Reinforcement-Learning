@@ -95,6 +95,7 @@ class DQNPlayer1(BasePokerPlayer):
         self.last_pfr_action = None
         self.three_bet = 0
         self.last_3_bet_action = None
+        self.street_first_action = None
         self.raisesizes = [0.25, 0.33, 0.5, 0.75, 1, 1.25, 1.5]
         self.last_reward = 0
         self.accumulated_reward = 0
@@ -1005,10 +1006,9 @@ class DQNPlayer1(BasePokerPlayer):
             if action in ["call", "raise"]:
 
                 # VPIP Logic
-                if amount > 0:
-                    if not self.last_vpip_action:
-                        self.VPIP += 1
-                        self.last_vpip_action = action
+                if amount > 0 and not self.last_vpip_action:
+                    self.VPIP += 1
+                    self.last_vpip_action = action
     
                 # PFR Logic
                 if action == "raise" and not self.last_pfr_action:
@@ -1024,17 +1024,17 @@ class DQNPlayer1(BasePokerPlayer):
                             self.last_3_bet_action = action
                             break  # Exit loop after the first raise found
 
-        
         stats_action = action
-        # print(self.uuid)
-        # print(round_state)
-        # print(action, amount)
 
         if action == "call" and amount == 0:
             stats_action = 'check'
-
-        self.action_stat[round_state["street"]][stats_action] += 1 
-        self.card_action_stat[round_state["street"]][action][self.hand_type] += 1
+        
+        if not self.street_first_action:
+            self.action_stat[round_state["street"]][stats_action] += 1 
+            self.card_action_stat[round_state["street"]][stats_action][self.hand_type] += 1
+            self.street_first_action = stats_action
+            if round_state["street"] == 'preflop':
+                self.hand_count += 1
 
         return action, math.floor(amount)
 
@@ -1047,17 +1047,15 @@ class DQNPlayer1(BasePokerPlayer):
         self.stack = 100
 
     def receive_round_start_message(self, round_count, hole_card, seats):
-
         self.last_vpip_action = None
         self.last_pfr_action = None
         self.last_3_bet_action = None
-        self.hand_count += 1
-
         self.hand_type = self.get_hand_type(hole_card)
 
         pass
 
     def receive_street_start_message(self, street, round_state):
+        self.street_first_action = None
         pass
 
     def receive_game_update_message(self, new_action, round_state):

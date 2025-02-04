@@ -5,7 +5,7 @@ from my_players.DQNPlayer3 import DQNPlayer3
 from my_players.DQNPlayer4 import DQNPlayer4
 from my_players.DQNPlayer5 import DQNPlayer5
 from my_players.DQNPlayer6 import DQNPlayer6
-from my_players.HonestPlayer import HonestPlayer
+from my_players.HonestPlayer_v2 import HonestPlayer
 from my_players.cardplayer import cardplayer
 from my_players.AllCall import AllCallPlayer
 import utils.Charts
@@ -93,12 +93,13 @@ for i in range(NUM_OF_AGENTS):
 for i in range(NUM_OF_AGENTS, 6):
     config.register_player(name=f"p{i+1}", algorithm=HonestPlayer())
 
-def reset_to_zero(d):
-    for key, value in d.items():
+def reset_to_zero(df):
+    for key, value in df.items():
         if isinstance(value, dict):  # If value is a dictionary, recurse
             reset_to_zero(value)
         else:  # If value is not a dictionary, reset it to 0
-            d[key] = 0
+            df[key] = 0
+    return df 
 
 # Game_Simulation
 for i in range(0, NUM_EPISODE):
@@ -148,7 +149,9 @@ for i in range(0, NUM_EPISODE):
             utils.Charts.plot_gto_style_action_grid(training_agents[j].card_action_stat['turn'], f"DNQ_Player{j + 1}_turn_action_grid.png", TITLE)
 
 
-            if i % 10000 == 0: reset_to_zero(training_agents[j].card_action_stat)
+            if i % 10000 == 0: 
+                card_action_stat = reset_to_zero(training_agents[j].card_action_stat)
+                action_stat = reset_to_zero(training_agents[j].action_stat)
 
         new_vpip = pd.DataFrame([vpip_history])
         new_pfr = pd.DataFrame([pfr_history])

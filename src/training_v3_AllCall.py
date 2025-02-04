@@ -5,7 +5,7 @@ from my_players.DQNPlayer3 import DQNPlayer3
 from my_players.DQNPlayer4 import DQNPlayer4
 from my_players.DQNPlayer5 import DQNPlayer5
 from my_players.DQNPlayer6 import DQNPlayer6
-from my_players.HonestPlayer import HonestPlayer
+from my_players.HonestPlayer_v2 import HonestPlayer
 from my_players.cardplayer import cardplayer
 from my_players.AllCall import AllCallPlayer
 import utils.Charts
@@ -21,16 +21,16 @@ import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 
 # User's Input
-NUM_EPISODE = 100000000
+NUM_EPISODE = 10000000
 LOG_INTERVAL = 100
-TITLE = 'DQN_vs_AllCall' # 'DQN_vs_AllCall' 'DQN_vs_DQN'
+TITLE = 'DQN_vs_AllCall' # 'DQN_vs_AllCall' 'DQN_vs_DQN' 'DQN_vs_Honest'
 TRAINING = True
 NUM_OF_AGENTS = 1
 
 # Initialisation
 NUM_OF_AGENTS = 6 if TITLE == 'DQN_vs_DQN' else 1
 accum_reward = 0
-subprocess.run(["python", "src/Utils/Clear.py"], check=True)
+subprocess.run(["python", "src/utils/Clear.py"], check=True)
 
 # Declaration
 vpip_history, pfr_history, three_bet_history, loss_history, reward_history = [], [], [], [], []
@@ -84,21 +84,22 @@ else:
                         DQNPlayer6(dqn_paths[5]['model'], dqn_paths[5]['optimizer'], TRAINING)]
 
 # Set up configuration
-config = setup_config(max_round=6, initial_stack=100, small_blind_amount=0.5)
+config = setup_config(max_round=36, initial_stack=100, small_blind_amount=0.5)
 
 # Register each player with their respective DQNPlayer instance
 for i in range(NUM_OF_AGENTS):
     config.register_player(name=f"p{i+1}", algorithm=training_agents[i])
 
-for i in range(NUM_OF_AGENTS+1, 7):
+for i in range(NUM_OF_AGENTS, 6):
     config.register_player(name=f"p{i+1}", algorithm=AllCallPlayer())
 
-def reset_to_zero(d):
-    for key, value in d.items():
+def reset_to_zero(df):
+    for key, value in df.items():
         if isinstance(value, dict):  # If value is a dictionary, recurse
             reset_to_zero(value)
         else:  # If value is not a dictionary, reset it to 0
-            d[key] = 0
+            df[key] = 0
+    return df 
 
 # Game_Simulation
 for i in range(0, NUM_EPISODE):
@@ -148,7 +149,9 @@ for i in range(0, NUM_EPISODE):
             utils.Charts.plot_gto_style_action_grid(training_agents[j].card_action_stat['turn'], f"DNQ_Player{j + 1}_turn_action_grid.png", TITLE)
 
 
-            if i % 10000 == 0: reset_to_zero(training_agents[j].card_action_stat)
+            if i % 10000 == 0: 
+                card_action_stat = reset_to_zero(training_agents[j].card_action_stat)
+                action_stat = reset_to_zero(training_agents[j].action_stat)
 
         new_vpip = pd.DataFrame([vpip_history])
         new_pfr = pd.DataFrame([pfr_history])
@@ -199,7 +202,6 @@ for i in range(0, NUM_EPISODE):
                 exit()
 
         if i + 1 % 10000 == 0:
-
             gc.collect()
         
 

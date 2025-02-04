@@ -33,7 +33,7 @@ The field of AI in poker is continuously evolving. Future directions of this pro
 
 ## Authors
 
-- **Trevor Poon** - _Initial work_
+- **Trevor Poon** - _Initial work__
 
 ## Acknowledgments
 
