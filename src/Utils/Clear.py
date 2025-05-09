@@ -2,7 +2,7 @@ import subprocess
 import time
 
 # List of Python scripts to run
-scripts = ["src/utils/CopyCodeDQN.py", "src/utils/Delete_csv.py", "src/utils/Delete_Models.py"]
+scripts = ["src/utils/Delete_csv.py", "src/utils/Delete_Models.py"]
 
 # Function to run a script and restart if it fails
 def run_script(script_path):
