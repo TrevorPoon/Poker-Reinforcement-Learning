@@ -7,4 +7,5 @@ DQN_Stat/
 __pycache__/
 *.pyc
 
-testing/ 
+models/
+result/ 
