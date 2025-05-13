@@ -1,42 +1,171 @@
-# Poker Reinforcement Learning Agents
+# Poker Reinforcement Learning
 
-This machine learning project is designed to uncover optimal strategies for playing poker, with a primary focus on Texas Hold'em—the most popular variant of the game. The project aims to bridge the gap between theoretical machine learning algorithms and their practical applications in game theory and decision-making under uncertainty.
+A ML project focused on developing  AI agents for playing poker, with primary emphasis on Texas Hold'em.
 
-## Project Overview
+## Project Description
 
-The objective of this project is to develop a robust AI poker player capable of competing against human players and other AI opponents. By leveraging hand-crafted feature extraction, state-of-the-art machine learning models, and rigorous training/testing procedures, this project delves deep into the complex and fascinating world of poker strategy.
+This project explores the application of RL algorithms to develop strategic poker-playing agents. The system trains AI players that learn optimal poker strategies through self-play and by competing against different opponent types.
 
-The repository is organized into several vital components:
+The project addresses the complex challenge of decision-making under uncertainty, where agents must learn to:
 
-- `Models/`: Contains the trained machine learning models.
-- `my_players/`: Houses the bot logic and decision-making algorithms.
+* Evaluate hand strength across different game stages
+* Adapt to opponent strategies
+* Make optimal betting decisions based on incomplete information
+* Balance exploitative and unexploitable play
 
-## Features
-
-- **Advanced Feature Extraction**: A sophisticated system for processing the game state, distilling vital information such as normalized stack sizes, hole card strengths, and pot sizes to inform AI decisions.
-- **Machine Learning Integration**: Machine learning models developed with PyTorch are integrated to determine the best course of action given the current game situation.
-- **Optimized Strategy**: Through rigorous training, the AI players adjust their strategies to maximize expected value and adopt the most effective tactics against a wide range of opponents.
-- **Simulated Testing Environment**: Comprehensive testing frameworks to evaluate AI performance against various playstyles and scenarios.
-  
-
-# VPIP of DQN Agents in a 6-max 100BB Cash Game
-
-![VPIP of DQN Agents in a 6-max 100BB Cash Game](./images/github_README/vpip_DQNs.png)
-
-# Expected Value for your hand
-![Expected Value for your hand](./images/github_README/DQN_vs_AllCall_DNQ_Player1_hand_reward_heatmap.png)
+The AI agents employ reinforcement learning algorithms including Deep Q-Networks (DQN) and Neural Fictitious Self Play (NFSP) to discover effective poker strategies through extensive training.
 
 
-## Further Work
+## VPIP of DQN Agents in a 6-max 100BB Cash Game
 
-The field of AI in poker is continuously evolving. Future directions of this project may include the implementation of reinforcement learning techniques, analysis of multi-player scenarios, and real-time adaptation algorithms.
+![VPIP of DQN Agents in a 6-max 100BB Cash Game](./images/vpip_DQNs.png)
+
+## Expected Value for your hand
+![Expected Value for your hand](./images/DQN_vs_AllCall_DNQ_Player1_hand_reward_heatmap.png)
+
+## Installation Instructions
+
+### Prerequisites
+
+* Python 3.11
+* CUDA-compatible GPU (recommended for faster training)
+
+### Setup
+
+```bash
+git clone https://github.com/TrevorPoon/Poker-Reinforcement-Learning.git
+cd Poker-Reinforcement-Learning
+pip install -r requirements.txt
+mkdir -p models result/runs result/log images
+```
+
+## Usage Guide
+
+### Training an Agent
+
+```bash
+# Basic training with default parameters (DQN vs DQN)
+python src/training.py  
+
+# Training a DQN agent against honest players for 50,000 episodes
+python src/training.py --scenario DQN_vs_Honest --episodes 50000  
+
+# Training an NFSP agent with specific game parameters
+python src/training.py --scenario NFSP_vs_AllCall --initial-stack 100 --small-blind 0.5 --max-rounds 36
+```
+
+### Monitoring Training Progress
+
+```bash
+tensorboard --logdir=result/runs
+```
+
+This provides visualizations of training metrics including:
+
+* Reward progression
+* Model loss
+* Poker statistics (VPIP, PFR, 3-Bet)
+* Hand reward heatmaps
+
+
+## Configuration
+
+### training.py arguments:
+
+| Argument        | Description                                  | Default      |
+| --------------- | -------------------------------------------- | ------------ |
+| --episodes      | Number of training episodes                  | 10,000,000   |
+| --log-interval  | Frequency of logging metrics                 | 100          |
+| --scenario      | Training scenario                            | DQN\_vs\_DQN |
+| --training      | Enable training mode                         | True         |
+| --agents        | Number of agents (auto-set if not specified) | None         |
+| --max-rounds    | Maximum rounds per poker game                | 36           |
+| --initial-stack | Initial chip stack                           | 100          |
+| --small-blind   | Small blind amount                           | 0.5          |
+| --plot-interval | Frequency of generating visualizations       | 1000         |
+| --gc-interval   | Garbage collection frequency                 | 10000        |
+
+### Available Scenarios
+
+* `DQN_vs_Honest`: DQN agent vs rule-based players
+* `DQN_vs_AllCall`: DQN agent vs players who always call
+* `DQN_vs_DQN`: Multiple DQN agents playing against each other
+* `NFSP_vs_Honest`: NFSP agent vs rule-based players
+* `NFSP_vs_AllCall`: NFSP agent vs players who always call
+* `NFSP_vs_NFSP`: Multiple NFSP agents playing against each other
+* `NFSP_vs_DQN`: NFSP agents vs DQN agents
+
+## Training Details
+
+### Training Loop
+
+The training loop:
+
+* Initializes agents
+* Sets up game environment
+* Runs self-play poker episodes
+* Collects experience
+* Periodically updates models and logs metrics
+* Generates plots and heatmaps
+
+### Metric Tracking
+
+Metrics logged include:
+
+* **VPIP**: Voluntarily Put Money In Pot
+* **PFR**: Pre-Flop Raise rate
+* **3-Bet**: Re-raise frequency
+* **Model Loss**: Neural network training loss
+* **Reward**: Accumulated chips won
+
+### Visualization
+
+Generated charts include:
+
+* **Action Proportions**: Frequency of each action per street
+* **Hand Reward Heatmaps**: EV of each starting hand
+* **GTO-Style Action Grids**: Frequency of action choices by hand/street
+
+## Model Architecture
+
+### Deep Q-Network (DQN)
+
+* **Input**: 46-dim vector (cards, pot, stacks, betting history)
+* **Network**:
+
+  * Input layer (46)
+  * Hidden layer 1 (128, ReLU)
+  * Hidden layer 2 (128, ReLU)
+  * Hidden layer 3 (64, ReLU)
+  * Output layer (11 actions)
+
+### Neural Fictitious Self-Play (NFSP)
+
+* Combines Q-network (reinforcement learning) and policy network (supervised learning)
+* Trains toward Nash-equilibrium style play in multi-agent settings
+
+### Exploration Strategy
+
+* Epsilon-greedy:
+
+  * Initial epsilon: 0.2
+  * Final epsilon: 0.001
+  * Decay: 0.9
+
+## License and Attribution
+
+This project is licensed under the MIT License. See `LICENSE` for more.
+
+Special thanks to **PyPokerEngine** for providing the poker simulation framework.
 
 ## Authors
 
-- **Trevor Poon** - _Initial work__
+* **Trevor Poon** – Initial work
 
-## Acknowledgments
+---
 
-A special thanks to the PyPokerEngine team for providing a robust framework that facilitates poker game simulations. Their work has been invaluable in the development of this project.
 
-For any inquiries or suggestions, please open an issue in this repository or reach out directly. We hope you find this work both insightful and inspiring as you embark on your AI journey in the realm of strategic gaming! Enjoy the challenge, and may the odds be in your favor.
+
+
+
+
