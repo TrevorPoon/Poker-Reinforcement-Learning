@@ -1,3 +1,5 @@
 Add VPIP and other stats
 Randomize positions
 Better state representations
+Understand the code of training and Player
+MCTS? 

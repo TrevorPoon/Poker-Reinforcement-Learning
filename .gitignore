@@ -7,5 +7,7 @@ DQN_Stat/
 __pycache__/
 *.pyc
 
+__init__.py
+
 models/
 result/ 
