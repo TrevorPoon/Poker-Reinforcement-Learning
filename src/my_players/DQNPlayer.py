@@ -669,7 +669,7 @@ class DQNPlayer(BasePokerPlayer):
         self.num_feats = (46, )
         self.declare_networks()
         try:
-            self.policy_net.load_state_dict(torch.load(self.model_path))
+            self.policy_net.load_state_dict(torch.load(self.model_path, weights_only=True))
         except:
             pass
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -677,7 +677,7 @@ class DQNPlayer(BasePokerPlayer):
         self.target_net.to(self.device)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
         try:
-            self.optimizer.load_state_dict(torch.load(self.optimizer_path))
+            self.optimizer.load_state_dict(torch.load(self.optimizer_path, weights_only=True))
         except:
             pass
         self.losses = []

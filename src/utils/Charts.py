@@ -228,3 +228,38 @@ def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None)
     # Save the plot
     plt.tight_layout()
     return fig # Return the figure object
+
+def plot_combined_metric_over_time(metric_data_all_agents, episodes, metric_name, scenario_title):
+    """Generates a line plot comparing a single metric across all agents over episodes."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    for agent_name, metric_values in metric_data_all_agents.items():
+        # Filter out NaN values for plotting, as matplotlib can handle gaps
+        # but connecting across large NaN sections might be misleading.
+        # We plot what we have.
+        valid_episodes = []
+        valid_metric_values = []
+        for i, val in enumerate(metric_values):
+            if not np.isnan(val):
+                try:
+                    valid_episodes.append(episodes[i])
+                    valid_metric_values.append(val)
+                except IndexError:
+                    # This might happen if metric_values is longer than episodes, though unlikely with current logic
+                    print(f"Warning: Mismatch in length for {agent_name}, metric {metric_name}. Skipping some data.")
+                    break
+        
+        if valid_episodes and valid_metric_values: # Ensure there is something to plot
+            ax.plot(valid_episodes, valid_metric_values, label=agent_name, marker='o', linestyle='-')
+
+    ax.set_xlabel("Episode")
+    ax.set_ylabel(metric_name)
+    ax.set_title(f"Combined {metric_name} for All Agents in {scenario_title}")
+    ax.legend(loc='best')
+    ax.grid(True)
+    
+    # Apply professional formatting (if desired, and function is available)
+    apply_professional_formatting() # Call your existing formatting function
+
+    plt.tight_layout()
+    return fig

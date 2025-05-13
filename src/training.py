@@ -44,6 +44,8 @@ def reset_to_zero(df):
             df[key] = 0
     return df
 
+METRICS_TO_PLOT_COMBINED = ["VPIP", "PFR", "3-Bet", "Model_Loss", "Reward"]
+
 def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
     """Initialize RL agents based on the specified type"""
     agents = []
@@ -89,7 +91,7 @@ def setup_game_config(agents, num_agents, opponent_type, max_round, initial_stac
 def calculate_stats(agent):
     # Check for division by zero
     if agent.hand_count == 0:
-        return 0, 0, 0
+        return 0, 0, 0 # Return tuple of zeros
         
     # NumPy operations are generally faster than pandas for simple calculations
     vpip_rate = np.divide(agent.VPIP, agent.hand_count) * 100
@@ -99,7 +101,8 @@ def calculate_stats(agent):
     return vpip_rate, pfr_rate, three_bet_rate
 
 def log_metrics(agents, num_agents, episode, log_interval, scenario, writer, 
-               plot_interval=5000, gc_interval=10000):
+               metrics_history, episode_numbers_for_plots, # Added history trackers
+               plot_interval=1000, gc_interval=10000):
     """Log metrics using TensorBoard and generate plots periodically."""
     # Only plot periodically
     should_plot = (episode % plot_interval == 0)
@@ -107,6 +110,7 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
     if episode % log_interval != 0:
         return True # Return True to indicate training should continue
     
+    episode_numbers_for_plots.append(episode) # Log episode number for x-axis of combined plots
     print(f"Episode: {episode+1}")
     
     # No longer need history lists or dataframes here
@@ -120,9 +124,15 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
     for j in range(num_agents):
         agent = agents[j]
         agent_tag_prefix = f"Agent_{j+1}"
+        agent_name_for_history = f"Agent_{j+1}" # Consistent key for history dict
         
         # Calculate VPIP, PFR, 3-Bet
         vpip_rate, pfr_rate, three_bet_rate = calculate_stats(agent)
+        
+        # Append to history for combined plots
+        metrics_history["VPIP"][agent_name_for_history].append(vpip_rate)
+        metrics_history["PFR"][agent_name_for_history].append(pfr_rate)
+        metrics_history["3-Bet"][agent_name_for_history].append(three_bet_rate)
         
         # Log scalar metrics to TensorBoard
         writer.add_scalar(f"{agent_tag_prefix}/VPIP", vpip_rate, episode)
@@ -132,33 +142,34 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
         print(f"Agent {j+1} - VPIP: {vpip_rate:.2f}%, PFR: {pfr_rate:.2f}%, 3-Bet: {three_bet_rate:.2f}%")
         
         # Log loss based on agent type
-        model_loss = 100 # Default high loss if no loss recorded
+        model_loss_value = np.nan # Default to NaN if no loss
         if agent_type == 'DQN':
-            if agent.loss:
-                model_loss = agent.loss
-                writer.add_scalar(f"{agent_tag_prefix}/Model_Loss", model_loss, episode)
-                print(f"Model Loss: {model_loss:.5f}")
+            if agent.loss is not None: # Assuming agent.loss is a scalar or can be treated as one
+                model_loss_value = agent.loss if isinstance(agent.loss, (int, float)) else np.mean(agent.loss) if isinstance(agent.loss, list) and agent.loss else np.nan
+                writer.add_scalar(f"{agent_tag_prefix}/Model_Loss", model_loss_value, episode)
+                print(f"Model Loss: {model_loss_value:.5f}")
             else:
                 loss_switch = 0
         elif agent_type == 'NFSP':
             if agent.q_loss is not None:
-                q_loss = agent.q_loss
-                writer.add_scalar(f"{agent_tag_prefix}/Q_Network_Loss", q_loss, episode)
-                print(f"Q-Network Loss: {q_loss:.5f}")
-                model_loss = q_loss # Use Q-loss for early stopping check
+                model_loss_value = agent.q_loss
+                writer.add_scalar(f"{agent_tag_prefix}/Q_Network_Loss", model_loss_value, episode)
+                print(f"Q-Network Loss: {model_loss_value:.5f}")
             else:
                 loss_switch = 0
-                model_loss = 100 # Assign high loss if Q_loss is None
+                # model_loss_value remains np.nan
                 
             if agent.policy_loss is not None:
-                policy_loss = agent.policy_loss
-                writer.add_scalar(f"{agent_tag_prefix}/Policy_Network_Loss", policy_loss, episode)
-                print(f"Policy Network Loss: {policy_loss:.5f}")
+                policy_loss_value = agent.policy_loss
+                writer.add_scalar(f"{agent_tag_prefix}/Policy_Network_Loss", policy_loss_value, episode)
+                print(f"Policy Network Loss: {policy_loss_value:.5f}")
         
-        total_model_loss += model_loss # Sum loss for early stopping check
+        metrics_history["Model_Loss"][agent_name_for_history].append(model_loss_value)
+        total_model_loss += model_loss_value if not np.isnan(model_loss_value) else 0 # Sum valid loss for early stopping check
 
         # Log reward
         accum_reward = agent.accumulated_reward
+        metrics_history["Reward"][agent_name_for_history].append(accum_reward)
         writer.add_scalar(f"{agent_tag_prefix}/Reward", accum_reward, episode)
         print(f"Reward: {accum_reward:.2f}")
         
@@ -194,14 +205,48 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
             agent.action_stat = reset_to_zero(agent.action_stat)
             print(f"Resetting stats for Agent {j+1} at episode {episode}")
 
-    # Remove all DataFrame logic (concatenation, CSV saving)
-    # ... Old DataFrame code removed ...
-    
     # Flush writer buffer
     writer.flush()
     
+    # Generate and log combined charts to TensorBoard
+    if should_plot:
+        for metric_name in METRICS_TO_PLOT_COMBINED:
+            # Ensure all agents have the same number of data points for this metric as episodes logged
+            # This is important if some agents might not report a metric (e.g. loss)
+            # For simplicity, we'll assume lengths match episode_numbers_for_plots
+            # More robust handling might involve padding or specific checks if lengths can vary significantly
+            
+            # Create a subset of history for plotting, matching the length of episode_numbers_for_plots
+            current_metric_history_for_plot = {}
+            for agent_name_key in metrics_history[metric_name]:
+                # Take the last N entries, where N is len(episode_numbers_for_plots)
+                # This assumes metrics are appended every log_interval when episode_numbers_for_plots is appended
+                history_for_agent = metrics_history[metric_name][agent_name_key]
+                current_metric_history_for_plot[agent_name_key] = history_for_agent[-len(episode_numbers_for_plots):]
+
+
+            fig_combined = utils.Charts.plot_combined_metric_over_time(
+                current_metric_history_for_plot, 
+                episode_numbers_for_plots, 
+                metric_name, 
+                scenario
+            )
+            if fig_combined:
+                writer.add_figure(f"Combined_Metrics/{metric_name}", fig_combined, episode)
+                plt.close(fig_combined)
+
     # Early stopping check (using average loss across agents)
-    average_loss = total_model_loss / num_agents if num_agents > 0 else 100
+    # average_loss = total_model_loss / num_agents if num_agents > 0 else 100
+    # Check for num_agents being zero and total_model_loss being NaN
+    if num_agents > 0:
+        valid_losses = [metrics_history["Model_Loss"][f"Agent_{j+1}"][-1] for j in range(num_agents) if metrics_history["Model_Loss"][f"Agent_{j+1}"] and not np.isnan(metrics_history["Model_Loss"][f"Agent_{j+1}"][-1])]
+        if valid_losses:
+            average_loss = np.mean(valid_losses)
+        else:
+            average_loss = 100 # Default if no valid losses
+    else:
+        average_loss = 100
+
     if loss_switch == 1 and round(average_loss, 5) == 0:
         print(f"Early stopping triggered due to average loss reaching zero.")
         return False # Signal to exit the training loop
@@ -242,6 +287,13 @@ def main():
     writer = SummaryWriter(log_dir)
     print(f"TensorBoard logs will be saved to: {log_dir}")
     
+    # Initialize metrics history
+    metrics_history = {
+        metric: {f"Agent_{j+1}": [] for j in range(num_agents)} 
+        for metric in METRICS_TO_PLOT_COMBINED
+    }
+    episode_numbers_for_plots = [] # For X-axis of combined plots
+
     # Initialize
     # subprocess.run(["python", "src/utils/Clear.py"], check=True) # Optional: Decide if you still need this
     
@@ -263,6 +315,7 @@ def main():
         # Log metrics and update dataframes
         continue_training = log_metrics(
             agents, num_agents, i, log_interval, scenario, writer, 
+            metrics_history, episode_numbers_for_plots, # Pass history trackers
             plot_interval, gc_interval # Pass writer and gc_interval
         )
         
