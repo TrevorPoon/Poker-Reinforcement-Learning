@@ -15,6 +15,7 @@ import argparse
 from pypokerengine.api.game import setup_config, start_poker
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
 plt.style.use('ggplot')
 
 # Add for CUDA optimization
@@ -117,6 +118,8 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
     if episode % log_interval != 0:
         return True # Return True to indicate training should continue
     
+        # Generate timestamp for logging
+
     # episode_numbers_for_plots.append(episode) # No longer needed for this approach
     logger = logging.getLogger(__name__)
     logger.info(f"Episode: {episode+1}")
@@ -218,16 +221,16 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
     
     # Log combined metrics directly to TensorBoard as scalars for comparison
     for metric_name in METRICS_TO_LOG_COMBINED:
+        metric_values = {}
         for k_agent_idx in range(num_agents):
-            agent_k_name_for_history = f"Agent_{k_agent_idx+1}"
-            current_value = np.nan
-            if metrics_history[metric_name][agent_k_name_for_history]:
-                current_value = metrics_history[metric_name][agent_k_name_for_history][-1]
-            if not np.isnan(current_value):
-                writer.add_scalar(f"Combined_Metrics/{metric_name}/Agent_{k_agent_idx+1}", current_value, episode)
-
-
-
+            agent_k_name = f"Agent_{k_agent_idx+1}"
+            if metrics_history[metric_name][agent_k_name]:
+                val = metrics_history[metric_name][agent_k_name][-1]
+                if not np.isnan(val):
+                    metric_values[agent_k_name] = val
+        
+        if metric_values:  # Only log if there's at least one valid entry
+            writer.add_scalars(f"Combined_Metrics/{metric_name}", metric_values, episode)
 
     # Early stopping check (using average loss across agents)
     if num_agents > 0:
@@ -257,10 +260,13 @@ def main():
     logger = logging.getLogger(__name__) # Get a logger instance for this module
     logger.setLevel(logging.INFO) # Set the minimum logging level
 
+    log_timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+
     # Create log directory if it doesn't exist
     log_dir_path = os.path.join(os.getcwd(), "result", "log")
     os.makedirs(log_dir_path, exist_ok=True)
-    log_file_path = os.path.join(log_dir_path, f"training_{args.scenario}.log")
+    log_file_path = os.path.join(log_dir_path, f"training_{args.scenario}_{log_timestamp}.log")
+
 
     # Create handlers
     file_handler = logging.FileHandler(log_file_path)
@@ -310,7 +316,7 @@ def main():
     opponent_type = scenario.split('_vs_')[1]
     
     # Initialize TensorBoard writer
-    tb_log_dir = f"result/runs/{scenario}" # Define log directory for TensorBoard
+    tb_log_dir = f"result/runs/{scenario}_{log_timestamp}" # Define log directory for TensorBoard
     writer = SummaryWriter(tb_log_dir)
     logger.info(f"TensorBoard logs will be saved to: {tb_log_dir}")
     
@@ -322,7 +328,7 @@ def main():
 
     # Make sure model directories exist
     os.makedirs('models', exist_ok=True)
-    subprocess.run(['python', 'src/utils/clean.py'], check=True)
+    # subprocess.run(['python', 'src/utils/clean.py'], check=True)
     
     logger.info(f"Starting {agent_type} training against {opponent_type}")
     logger.info(f"Scenario: {scenario}, Episodes: {num_episodes}, Agents: {num_agents}")

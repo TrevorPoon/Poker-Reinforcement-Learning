@@ -359,45 +359,61 @@ class ReplayMemory:
 
 # Best Response Network (Q-Network)
 class QNetwork(nn.Module):
-    def __init__(self, input_shape, num_actions):
+    def __init__(self, input_shape, num_actions, lstm_hidden_size=128):
         super(QNetwork, self).__init__()
         
-        self.input_shape = input_shape
+        self.input_dim = input_shape[0]
         self.num_actions = num_actions
-        
+        self.lstm_hidden_size = lstm_hidden_size
+
         # Q-network for best response
-        self.fc1 = nn.Linear(self.input_shape[0], 256)
+        self.lstm = nn.LSTM(self.input_dim, self.lstm_hidden_size, batch_first=True)
+        self.fc1 = nn.Linear(self.lstm_hidden_size, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 128)
         self.fc4 = nn.Linear(128, self.num_actions)
         
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
+    def forward(self, x, hidden=None):
+        if x.ndim == 2: 
+            x = x.unsqueeze(1) 
+        
+        lstm_out, hidden = self.lstm(x, hidden)
+        lstm_out_last_step = lstm_out[:, -1, :]
+
+        x = F.relu(self.fc1(lstm_out_last_step))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         x = self.fc4(x)
-        return x
+        return x, hidden
 
 # Average Policy Network (Supervised Learning)
 class PolicyNetwork(nn.Module):
-    def __init__(self, input_shape, num_actions):
+    def __init__(self, input_shape, num_actions, lstm_hidden_size=128):
         super(PolicyNetwork, self).__init__()
         
-        self.input_shape = input_shape
+        self.input_dim = input_shape[0]
         self.num_actions = num_actions
+        self.lstm_hidden_size = lstm_hidden_size
         
         # Policy network for average strategy
-        self.fc1 = nn.Linear(self.input_shape[0], 256)
+        self.lstm = nn.LSTM(self.input_dim, self.lstm_hidden_size, batch_first=True)
+        self.fc1 = nn.Linear(self.lstm_hidden_size, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 128)
         self.fc4 = nn.Linear(128, self.num_actions)
         
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
+    def forward(self, x, hidden=None):
+        if x.ndim == 2:
+            x = x.unsqueeze(1)
+
+        lstm_out, hidden = self.lstm(x, hidden)
+        lstm_out_last_step = lstm_out[:, -1, :]
+
+        x = F.relu(self.fc1(lstm_out_last_step))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
         x = F.softmax(self.fc4(x), dim=1)
-        return x
+        return x, hidden
 
 class NFSPPlayer(BasePokerPlayer):
     def __init__(self, q_model_path, policy_model_path, q_optimizer_path, policy_optimizer_path, training=True):
@@ -448,6 +464,9 @@ class NFSPPlayer(BasePokerPlayer):
         self.best_response_mode = None  # Will be set at the start of each hand
         self.current_state = None
         self.history = []
+        self.lstm_hidden_size = 128 # Define LSTM hidden size
+        self.q_net_hidden = None
+        self.policy_net_hidden = None
         
         # Player's stats (similar to DQNPlayer)
         self.hand_count = 0
@@ -502,8 +521,10 @@ class NFSPPlayer(BasePokerPlayer):
         self.num_actions = 11  # Same as before but with more strategic options
         
         # Extend the state representation to include opponent modeling features
-        self.opponent_feature_size = 10  # Size of opponent feature vector
-        self.num_feats = (46 + self.opponent_feature_size * 5,)  # Extended state size
+        self.opponent_feature_size = 10  # Size of opponent feature vector for stats
+        self.exploit_strategy_feature_size = 3 # Size for exploit strategy adjustments
+        # Approx: 48 (base) + 5 * (10 stats + 3 exploit) + 1 (active_players) + 1 (eff_stack) + 30 (street_hist) = 48 + 65 + 1 + 1 + 30 = 145
+        self.num_feats = (145,) # Updated num_feats 
         self.initialize_networks()
         
     def initialize_card_stats(self):
@@ -549,16 +570,16 @@ class NFSPPlayer(BasePokerPlayer):
     def initialize_networks(self):
         """Initialize Q-network and policy network"""
         # Q-network and target network for best response
-        self.q_net = QNetwork(self.num_feats, self.num_actions).to(self.device)
-        self.target_q_net = QNetwork(self.num_feats, self.num_actions).to(self.device)
+        self.q_net = QNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size).to(self.device)
+        self.target_q_net = QNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size).to(self.device)
         
         # Policy network for average strategy
-        self.policy_net = PolicyNetwork(self.num_feats, self.num_actions).to(self.device)
+        self.policy_net = PolicyNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size).to(self.device)
         
         # Try to load existing models
         try:
-            self.q_net.load_state_dict(torch.load(self.q_model_path))
-            self.policy_net.load_state_dict(torch.load(self.policy_model_path))
+            self.q_net.load_state_dict(torch.load(self.q_model_path, weights_only=True))
+            self.policy_net.load_state_dict(torch.load(self.policy_model_path, weights_only=True))
         except Exception as e:
             print(f"Could not load models: {e}")
             
@@ -571,8 +592,8 @@ class NFSPPlayer(BasePokerPlayer):
         
         # Try to load optimizer states
         try:
-            self.q_optimizer.load_state_dict(torch.load(self.q_optimizer_path))
-            self.policy_optimizer.load_state_dict(torch.load(self.policy_optimizer_path))
+            self.q_optimizer.load_state_dict(torch.load(self.q_optimizer_path, weights_only=True))
+            self.policy_optimizer.load_state_dict(torch.load(self.policy_optimizer_path, weights_only=True))
         except Exception as e:
             print(f"Could not load optimizer states: {e}")
             
@@ -620,15 +641,37 @@ class NFSPPlayer(BasePokerPlayer):
             # Create valid action mask
             valid_action_mask = np.ones(self.num_actions, dtype=bool)
             
-            # Adjust mask based on game state
-            if valid_actions[2]['amount']['max'] == -1:  # Can't raise
-                valid_action_mask[2:] = False  # Only fold and call are valid
+            # Adjust mask based on game state for fold/call
             if valid_actions[1]['amount'] == 0:  # Check is available
-                valid_action_mask[0] = False  # Cannot fold
+                valid_action_mask[0] = False  # Cannot fold when check is an option
+            # else fold is always an option (valid_action_mask[0] remains True)
+
+            # valid_action_mask[1] (call/check) is always True if we reach this point
+
+            # Adjust mask for raise actions
+            if len(valid_actions) < 3 or valid_actions[2]['amount']['max'] == -1:  # Can't raise if no raise action or max is -1
+                valid_action_mask[2:] = False  # Disable all raise actions
+            else:
+                # Raising is generally possible, check specific number of raise options
+                # valid_actions[2]['amount'] should have been populated by declare_action with actual raise options
+                num_available_raise_options = len(valid_actions[2]['amount'].items())
                 
+                # Iterate through the 9 conceptual raise slots (action_index 2 to 10)
+                for k_raise_slot in range(self.num_actions - 2): # k_raise_slot from 0 to 8
+                    if k_raise_slot >= num_available_raise_options:
+                        # This conceptual raise slot does not map to an available distinct raise amount
+                        valid_action_mask[2 + k_raise_slot] = False
+                    # else: valid_action_mask[2 + k_raise_slot] remains True by default
+
             if self.best_response_mode:
                 # Use best response (Q-network) with epsilon-greedy
-                q_values = self.q_net(state_tensor).cpu().numpy().reshape(-1)
+                current_q_hidden = None
+                if self.q_net_hidden is not None:
+                    current_q_hidden = (self.q_net_hidden[0].clone().detach(), self.q_net_hidden[1].clone().detach())
+                
+                q_values_full, new_q_hidden = self.q_net(state_tensor, current_q_hidden)
+                self.q_net_hidden = new_q_hidden # Store new hidden state
+                q_values = q_values_full.cpu().numpy().reshape(-1)
                 masked_q_values = np.where(valid_action_mask, q_values, -np.inf)
                 
                 if np.random.random() < self.epsilon and self.training:
@@ -640,7 +683,13 @@ class NFSPPlayer(BasePokerPlayer):
                     action = np.argmax(masked_q_values)
             else:
                 # Use average policy (Policy network)
-                policy_probs = self.policy_net(state_tensor).cpu().numpy().reshape(-1)
+                current_policy_hidden = None
+                if self.policy_net_hidden is not None:
+                    current_policy_hidden = (self.policy_net_hidden[0].clone().detach(), self.policy_net_hidden[1].clone().detach())
+                
+                policy_probs_full, new_policy_hidden = self.policy_net(state_tensor, current_policy_hidden)
+                self.policy_net_hidden = new_policy_hidden # Store new hidden state
+                policy_probs = policy_probs_full.cpu().numpy().reshape(-1)
                 masked_policy_probs = np.where(valid_action_mask, policy_probs, 0)
                 
                 # Normalize probabilities if needed
@@ -688,12 +737,14 @@ class NFSPPlayer(BasePokerPlayer):
                                            device=self.device, dtype=torch.float)
         
         # Compute Q(s_t, a)
-        q_values = self.q_net(state_batch).gather(1, action_batch)
+        q_values_full, _ = self.q_net(state_batch)
+        q_values = q_values_full.gather(1, action_batch)
         
         # Compute max Q(s_{t+1}, a) for non-terminal states
         next_q_values = torch.zeros(self.batch_size, 1, device=self.device)
         if len(non_final_next_states) > 0:
-            next_q_values[non_final_mask] = self.target_q_net(non_final_next_states).max(1, keepdim=True)[0].detach()
+            target_q_full, _ = self.target_q_net(non_final_next_states)
+            next_q_values[non_final_mask] = target_q_full.max(1, keepdim=True)[0].detach()
         
         # Compute expected Q values
         expected_q_values = reward_batch + (self.gamma * next_q_values)
@@ -724,7 +775,8 @@ class NFSPPlayer(BasePokerPlayer):
         action_batch = torch.tensor(batch_action, device=self.device, dtype=torch.long)
         
         # Forward pass
-        log_probs = torch.log(self.policy_net(state_batch) + 1e-8)  # Add small constant for numerical stability
+        policy_probs_full, _ = self.policy_net(state_batch)
+        log_probs = torch.log(policy_probs_full + 1e-8)  # Add small constant for numerical stability
         
         # Compute loss (negative log likelihood)
         loss = F.nll_loss(log_probs, action_batch)
@@ -788,150 +840,260 @@ class NFSPPlayer(BasePokerPlayer):
     def process_state(s):
         """Normalize the state values including opponent modeling features"""
         new_s = list(s)
+        # Current state structure (target 145 features):
+        # 0-6: Cards (7 features: 2 hole, 5 community)
+        # 7: Main pot total
+        # 8-13: Player stacks (6 features)
+        # 14: Self stack
+        # 15-38: Last amounts (bet history, 6 players * 4 streets = 24 features)
+        # 39-44: Player statuses (6 features)
+        # 45: Self position relative to dealer
+        # --- NEW FEATURES ---
+        # 46: SPR (Stack-to-Pot Ratio)
+        # 47: Pot odds for us
+        # 48: Number of active players
+        # 49: Effective stack size
+        # --- Opponent Modeling Features (65 features: 5 opponents * (10 stats + 3 exploit)) ---
+        # 50-114: Opponent features (5 * 13 features each)
+        # --- Current Street Action History for Opponents (30 features: 5 opponents * 6 actions) ---
+        # 115-144: Street action history features
         
-        # Normalize card values
+        # Normalize card values (indices 0-6)
         for i in range(0, 7):
-            new_s[i] = new_s[i] / 26.0 - 1
+            new_s[i] = new_s[i] / 26.0 - 1.0
             
-        # Normalize stack and pot values
-        for i in range(7, 39):
-            new_s[i] = (new_s[i] - 100) / 100
+        # Normalize pot and stack values (indices 7 to 14, plus effective_stack at 49, and invested amounts later)
+        # main_pot (7), player_stacks (8-13), self.stack (14)
+        for i in range(7, 14 + 1):
+            new_s[i] = (new_s[i] - 100.0) / 100.0 
+        
+        # last_amounts (bet history, indices 15-38)
+        for i in range(15, 38 + 1):
+            new_s[i] = (new_s[i] - 100.0) / 100.0 
             
-        # Normalize position class (0-3) to range [0,1]
-        if len(new_s) > 39:
-            new_s[39] = new_s[39] / 3.0
+        # player_statuses (39-44) are 0/1, can map to -1/1 or leave
+        for i in range(39, 44 + 1):
+            new_s[i] = (new_s[i] - 0.5) * 2.0
+
+        # self_position (45), 0-5 for 6 players
+        if len(new_s) > 45: new_s[45] = new_s[45] / 5.0 
+
+        # SPR (46) - cap at 20 for normalization
+        if len(new_s) > 46: new_s[46] = min(new_s[46], 20.0) / 20.0
+        
+        # Pot odds (47) - already 0 to 1
+        # No normalization needed if it's correctly calculated as a ratio
+
+        # Number of active players (48)
+        if len(new_s) > 48: new_s[48] = new_s[48] / 6.0 
+        
+        # Effective stack size (49)
+        if len(new_s) > 49: new_s[49] = (new_s[49] - 100.0) / 100.0
+
+        # Opponent features (indices 50 to 50 + 65 - 1 = 114)
+        # 5 opponents * (10 stats from get_opponent_feature_vector + 3 exploit strategy adjustments)
+        opp_features_start_idx = 50
+        num_opp_stats = 10
+        num_exploit_feats = 3
+        total_feats_per_opp = num_opp_stats + num_exploit_feats # 13
+        
+        for opp_idx in range(5): # Max 5 opponents
+            base_opp_feat_idx = opp_features_start_idx + opp_idx * total_feats_per_opp
             
-        # Normalize SPR (Stack-to-Pot Ratio)
-        if len(new_s) > 40:
-            # Cap SPR at 20 for normalization
-            new_s[40] = min(new_s[40], 20.0) / 20.0
+            # Stats (VPIP, PFR, 3bet%, fold_to_3bet%, cbet% are already 0-1)
+            # Aggression factor (idx 4 of stats, so base_opp_feat_idx + 4)
+            if len(new_s) > base_opp_feat_idx + 4:
+                 new_s[base_opp_feat_idx + 4] = min(new_s[base_opp_feat_idx + 4], 10.0) / 10.0 # Cap aggression at 10
             
-        # Normalize pot odds
-        if len(new_s) > 41:
-            new_s[41] = new_s[41]  # Already in [0,1]
+            # Positional raise stats (indices 6-9 of stats) are 0-1
             
-        # Normalize opponent features if present
-        if len(new_s) > 42:
-            # VPIP, PFR, 3bet%, etc. are already in [0,1]
-            # Aggression factor needs normalization
-            for i in range(46, len(new_s), 13):  # Aggression factor is at position 4 in each 13-value opponent block
-                if i < len(new_s):
-                    new_s[i] = min(new_s[i], 10.0) / 10.0  # Cap aggression at 10
-                    
+            # Exploit strategy adjustments (next 3 features after 10 stats)
+            # value_bet_sizing, bluff_frequency, call_threshold, raise_threshold (we used 3 of these)
+            # These are multipliers around 1.0. e.g. 0.5 to 1.5. Normalize (val - 1.0) / 0.5 or similar.
+            exploit_adj_start_idx = base_opp_feat_idx + num_opp_stats
+            if len(new_s) > exploit_adj_start_idx + 2: # Check up to last exploit feature
+                for i in range(num_exploit_feats):
+                    new_s[exploit_adj_start_idx + i] = (new_s[exploit_adj_start_idx + i] - 1.0) / 0.5 
+
+        # Current Street Action History (indices 115 to 115 + 30 -1 = 144)
+        # 5 opponents * 6 features each (fold, check, call, bet_count, raise_count, total_invested_this_street)
+        street_hist_start_idx = 115
+        for opp_idx in range(5):
+            base_street_hist_idx = street_hist_start_idx + opp_idx * 6
+            # fold (idx 0), check (idx 1) are 0/1 or counts
+            if len(new_s) > base_street_hist_idx + 1:
+                new_s[base_street_hist_idx + 0] = (new_s[base_street_hist_idx + 0] - 0.5) * 2.0 # Map 0/1 to -1/1
+                new_s[base_street_hist_idx + 1] = new_s[base_street_hist_idx + 1] / 3.0 # Max 3 checks? Normalize count
+            # call, bet, raise counts (idx 2,3,4)
+            if len(new_s) > base_street_hist_idx + 4:
+                for i in range(2, 5): 
+                    new_s[base_street_hist_idx + i] = new_s[base_street_hist_idx + i] / 3.0 # Max 3 of each? Normalize count
+            # total_invested_this_street (idx 5)
+            if len(new_s) > base_street_hist_idx + 5:
+                new_s[base_street_hist_idx + 5] = (new_s[base_street_hist_idx + 5] - 100.0) / 100.0
+
         return tuple(new_s)
     
     def get_state(self, community_card, round_state):
         """Construct the current state vector with enhanced professional features"""
-        self.state = self.hole_card + community_card 
+        # --- Base Game State (up to feature 45 as in DQNPlayer) ---
+        current_state_list = list(self.hole_card + community_card) # 7 features (0-6)
 
-        # Basic pot and stack information
-        main_pot = round_state['pot']['main']['amount']
-        self.state += (main_pot,)
+        main_pot_total = round_state['pot']['main']['amount']
+        for side_pot in round_state['pot'].get('side', []):
+            main_pot_total += side_pot['amount']
+        current_state_list.append(main_pot_total) # Feature 7
 
-        player_stacks = tuple(seat['stack'] for seat in round_state['seats'])
-        self.state += player_stacks  
+        player_stacks_list = [0.0] * 6
+        player_statuses_list = [0.0] * 6
+        player_uuids = [p['uuid'] for p in round_state['seats']]
 
-        my_stack = round_state['seats'][self.player_id]['stack']
-        self.state += (my_stack, )
+        for i in range(6):
+            if i < len(round_state['seats']):
+                seat = round_state['seats'][i]
+                player_stacks_list[i] = seat['stack']
+                player_statuses_list[i] = 1.0 if seat['state'] == 'participating' else 0.0
+        
+        current_state_list.extend(player_stacks_list) # Features 8-13
+        current_state_list.append(round_state['seats'][self.player_id]['stack']) # Feature 14 (self.stack)
 
-        # Historical action tracking
-        last_amounts = {seat['uuid']: [0, 0, 0, 0] for seat in round_state['seats']}  # 4 rounds per player
+        last_amounts_list = [0.0] * 24 # 6 players * 4 streets
+        for street_idx, street_name in enumerate(['preflop', 'flop', 'turn', 'river']):
+            actions_on_street = round_state['action_histories'].get(street_name, [])
+            for action in actions_on_street:
+                try:
+                    player_idx_in_game = player_uuids.index(action['uuid'])
+                    if 0 <= player_idx_in_game < 6:
+                         last_amounts_list[player_idx_in_game * 4 + street_idx] = action.get('amount', 0)
+                except ValueError:
+                    pass
+        current_state_list.extend(last_amounts_list) # Features 15-38
+        current_state_list.extend(player_statuses_list) # Features 39-44
 
-        for i, street in enumerate(['preflop', 'flop', 'turn', 'river']):
-            actions = round_state['action_histories'].get(street, [])
-            for action in actions:
-                uuid = action['uuid']
-                last_amounts[uuid][i] = action.get('amount', 0)
+        my_seat_idx_in_game = self.player_id
+        dealer_btn_seat_idx = round_state['dealer_btn']
+        num_game_players = len(round_state['seats'])
+        my_position_relative_to_dealer = (my_seat_idx_in_game - dealer_btn_seat_idx + num_game_players) % num_game_players
+        current_state_list.append(float(my_position_relative_to_dealer)) # Feature 45 (self_position)
+        
+        # --- Features from original NFSP (SPR, Pot Odds, Positional Class) ---
+        # These were already part of original NFSP's get_state logic, re-integrating here
+        my_current_stack = round_state['seats'][self.player_id]['stack']
+        spr_value = my_current_stack / max(1.0, main_pot_total)
+        current_state_list.append(spr_value) # Feature 46 (SPR)
 
-        for player_id in last_amounts:
-            self.state += tuple(last_amounts[player_id])
+        pot_odds_value = 0.0
+        amount_to_call_for_me = 0
+        current_bet_level_on_street = 0
+        my_bet_this_street = 0
+        street_actions = round_state['action_histories'].get(round_state['street'], [])
+        if street_actions:
+            for act_hist_item in street_actions:
+                # Consider 'paid' if available and more accurate for total bet on street
+                current_bet_level_on_street = max(current_bet_level_on_street, act_hist_item.get('amount', 0) + act_hist_item.get('add_amount',0) if act_hist_item['action']=='raise' else act_hist_item.get('amount',0))
 
-        # Player participation status
-        player_statuses = tuple(1 if seat['state'] == 'participating' else 0 for seat in round_state['seats'])
-        self.state += player_statuses
+            for act_hist_item in street_actions:
+                if act_hist_item['uuid'] == self.uuid:
+                    my_bet_this_street += act_hist_item.get('amount',0)
+            amount_to_call_for_me = current_bet_level_on_street - my_bet_this_street
+        
+        if (main_pot_total + amount_to_call_for_me) > 0 and amount_to_call_for_me > 0:
+            pot_odds_value = amount_to_call_for_me / (main_pot_total + amount_to_call_for_me)
+        current_state_list.append(pot_odds_value) # Feature 47 (Pot Odds)
 
-        # Calculate relative position - a critical factor in professional play
-        for player in round_state['seats']:
-            if player['uuid'] == self.uuid:
-                my_position = int(player['name'][-1])
+        # (Original position_class was removed, using relative_position for now, can add back if needed)
+
+        # --- NEW General Features ---
+        active_players_count = sum(1 for p_status in player_statuses_list if p_status == 1.0)
+        current_state_list.append(float(active_players_count)) # Feature 48 (Num Active Players)
+
+        active_player_stacks_values = [player_stacks_list[i] for i, status in enumerate(player_statuses_list) if status == 1.0]
+        effective_stack = min(active_player_stacks_values) if active_player_stacks_values else my_current_stack
+        current_state_list.append(float(effective_stack)) # Feature 49 (Effective Stack)
+
+        # --- Opponent Modeling Features (Indices 50 to 50 + 65 - 1 = 114) ---
+        # 5 opponents * (10 stats from get_opponent_feature_vector + 3 exploit strategy adjustments)
+        opponent_features_flat = [0.0] * (5 * (self.opponent_feature_size + self.exploit_strategy_feature_size))
+        if self.opponent_tracker is not None:
+            all_positions_relative = self.opponent_tracker._get_positions(round_state) # relative to dealer
+            my_pos_type_str = self.get_position_type(my_position_relative_to_dealer, num_game_players)
+            my_pos_class_const = self.position_type_to_class(my_pos_type_str)
+
+            opponent_slot = 0
+            for i in range(num_game_players):
+                if i == self.player_id:
+                    continue
+                if opponent_slot >= 5:
+                    break
+                
+                opp_stats_vec = self.opponent_tracker.get_opponent_feature_vector(i) # 10 features
+                
+                opp_pos_relative_to_dealer = all_positions_relative[i]
+                opp_pos_type_str = self.opponent_tracker._position_to_type(opp_pos_relative_to_dealer, num_game_players)
+                opp_pos_class_const = self.position_type_to_class(opp_pos_type_str)
+                
+                exploit_strategy = self.opponent_tracker.get_exploit_strategy(i, my_pos_class_const, opp_pos_class_const)
+                exploit_vec = [
+                    exploit_strategy['value_bet_sizing'], 
+                    exploit_strategy['bluff_frequency'],
+                    exploit_strategy['call_threshold']
+                ] # 3 features
+
+                opp_full_features = opp_stats_vec + exploit_vec # 10 + 3 = 13 features
+                start_idx_for_opp = opponent_slot * (self.opponent_feature_size + self.exploit_strategy_feature_size)
+                for k in range(len(opp_full_features)):
+                    opponent_features_flat[start_idx_for_opp + k] = opp_full_features[k]
+                opponent_slot += 1
+        current_state_list.extend(opponent_features_flat) # Features 50-114
+
+        # --- NEW Current Street Action History for Opponents (Indices 115 to 115 + 30 -1 = 144) ---
+        # 5 opponents * 6 features each (fold, check, call, bet_count, raise_count, total_invested_this_street)
+        street_action_hist_features = [0.0] * (5 * 6) 
+        current_street_name = round_state['street']
+        actions_this_street = round_state['action_histories'].get(current_street_name, [])
+        
+        opponent_slot_street_hist = 0
+        for i in range(num_game_players):
+            if i == self.player_id:
+                continue
+            if opponent_slot_street_hist >= 5: 
                 break
 
-        dealer_position = round_state['dealer_btn']
-        num_players = len(round_state['seats'])
-        
-        # Professional position classification
-        # 0 = early, 1 = middle, 2 = late, 3 = blinds
-        if num_players <= 3:
-            if (my_position - dealer_position) % num_players == 0:  # Button
-                position_class = 2  # Late
-            else:  # Blinds
-                position_class = 3  # Blinds
-        else:
-            pos_relative = (my_position - dealer_position) % num_players
-            if pos_relative == 0:  # Button
-                position_class = 2  # Late
-            elif pos_relative <= 2:  # SB, BB
-                position_class = 3  # Blinds
-            elif pos_relative < num_players / 3 + 2:  # First third of table after blinds
-                position_class = 0  # Early
-            elif pos_relative < 2 * num_players / 3 + 2:  # Second third
-                position_class = 1  # Middle
-            else:  # Last third
-                position_class = 2  # Late
-                
-        self.state += (position_class,)
-        
-        # Calculate Stack-to-Pot Ratio (SPR) - key concept in professional poker
-        # SPR = (My Stack) / (Pot Size)
-        if main_pot > 0:
-            spr = my_stack / main_pot
-        else:
-            spr = 10.0  # Default high value when pot is empty
+            opp_uuid = round_state['seats'][i]['uuid']
+            # Store counts for: fold, check, call, bet, raise. And total amount.
+            opp_street_actions = {'fold':0.0, 'check':0.0, 'call':0.0, 'bet':0.0, 'raise':0.0, 'invested':0.0}
+            is_first_aggressive_action_by_opp = True # To distinguish bet vs raise
+
+            for action_item in actions_this_street:
+                if action_item['uuid'] == opp_uuid:
+                    action_type = action_item['action']
+                    amount = action_item.get('amount', 0)
+
+                    if action_type == 'fold': opp_street_actions['fold'] = 1.0
+                    elif action_type == 'call':
+                        if amount == 0: opp_street_actions['check'] += 1.0
+                        else: opp_street_actions['call'] += 1.0
+                    elif action_type == 'raise': # pypokerengine uses 'raise' for bets too
+                        # Try to distinguish bet from raise
+                        # A simple heuristic: if no prior bets/raises on this street by others and this is first aggro by opp
+                        # This is complex. For now, let's use a simpler approach:
+                        # Count any 'raise' action as 'raise'. If need 'bet', need more context.
+                        opp_street_actions['raise'] += 1.0
+                    
+                    opp_street_actions['invested'] += amount
             
-        self.state += (spr,)
-        
-        # Add pot odds if facing a bet
-        pot_odds = 0.0
-        for street in ['preflop', 'flop', 'turn', 'river']:
-            if street in round_state['action_histories'] and round_state['action_histories'][street]:
-                actions = round_state['action_histories'][street]
-                # Find the last bet/raise that isn't ours
-                for action in reversed(actions):
-                    if action['uuid'] != self.uuid and action['action'] in ['call', 'raise'] and action.get('amount', 0) > 0:
-                        amount_to_call = action.get('amount', 0)
-                        if amount_to_call > 0:
-                            pot_odds = amount_to_call / (main_pot + amount_to_call)
-                        break
-                        
-        self.state += (pot_odds,)
-        
-        # Add opponent modeling features if available
-        if self.opponent_tracker is not None:
-            all_positions = self.opponent_tracker._get_positions(round_state)
+            base_idx = opponent_slot_street_hist * 6
+            street_action_hist_features[base_idx + 0] = opp_street_actions['fold']
+            street_action_hist_features[base_idx + 1] = opp_street_actions['check']
+            street_action_hist_features[base_idx + 2] = opp_street_actions['call']
+            street_action_hist_features[base_idx + 3] = opp_street_actions['bet'] # Requires better logic if used
+            street_action_hist_features[base_idx + 4] = opp_street_actions['raise']
+            street_action_hist_features[base_idx + 5] = opp_street_actions['invested']
             
-            # Add features for each opponent
-            for i, seat in enumerate(round_state['seats']):
-                if i != self.player_id:  # Skip ourselves
-                    opp_features = self.opponent_tracker.get_opponent_feature_vector(i)
+            opponent_slot_street_hist += 1
+        current_state_list.extend(street_action_hist_features) # Features 115-144
                     
-                    # Add position context to features
-                    opp_position = all_positions[i]
-                    opp_position_class = self.opponent_tracker._position_to_type(opp_position, num_players)
-                    
-                    # Get exploit strategy for this opponent
-                    exploit_strategy = self.opponent_tracker.get_exploit_strategy(
-                        i, position_class, self.position_type_to_class(opp_position_class))
-                        
-                    # Add strategy adjustments to state
-                    self.state += tuple(opp_features)
-                    self.state += (exploit_strategy['value_bet_sizing'], 
-                                  exploit_strategy['bluff_frequency'],
-                                  exploit_strategy['call_threshold'])
-                else:
-                    # Add placeholder values for our own position
-                    self.state += tuple([0.0] * 10)  # Zero features for self
-                    self.state += (1.0, 1.0, 1.0)  # Neutral strategy adjustments
-                    
+        self.state = tuple(current_state_list)
         return self.state
         
     def position_type_to_class(self, position_type):
@@ -959,11 +1121,13 @@ class NFSPPlayer(BasePokerPlayer):
             self.opponent_tracker.update_from_game_state(round_state, self.player_id, round_state["street"])
         
         # Get enhanced state with opponent modeling
-        self.state = self.get_state(community_card, round_state)
-        self.state = self.process_state(self.state)
+        raw_state = self.get_state(community_card, round_state) # Renamed from self.state to avoid conflict
+        processed_state_for_nn = self.process_state(raw_state) # Process the raw_state
         
-        # Store current state for later
-        self.current_state = self.state
+        # Store current state for later (use processed for NN, raw for history/replay?)
+        # For NFSP, the state used for SL memory should be what the BR policy saw.
+        # The state for BR memory should also be what BR policy saw.
+        self.current_state = processed_state_for_nn # Store the processed state that networks see
         
         # Process valid actions and pot size
         pot_size = round_state['pot']['main']['amount']
@@ -1037,7 +1201,7 @@ class NFSPPlayer(BasePokerPlayer):
                 action['amount'] = final_amount
         
         # Select action using NFSP
-        action_index = self.select_action(self.state, valid_actions)
+        action_index = self.select_action(processed_state_for_nn, valid_actions) # Use processed state
         
         # Convert to API format (fold, call, or raise)
         if action_index > 1:
@@ -1087,7 +1251,7 @@ class NFSPPlayer(BasePokerPlayer):
                 self.hand_count += 1
                 
         # Store action for learning
-        self.history.append((self.state, action_index))
+        self.history.append((processed_state_for_nn, action_index)) # Store processed state and action_index
                 
         return action, math.floor(amount)
     
@@ -1112,6 +1276,15 @@ class NFSPPlayer(BasePokerPlayer):
         self.hand_type = self.get_hand_type(hole_card)
         self.best_response_mode = None  # Will be set on first action
         self.history = []
+        # Reset LSTM hidden states
+        if self.lstm_hidden_size > 0:
+            self.q_net_hidden = (torch.zeros(1, 1, self.lstm_hidden_size).to(self.device),
+                                 torch.zeros(1, 1, self.lstm_hidden_size).to(self.device))
+            self.policy_net_hidden = (torch.zeros(1, 1, self.lstm_hidden_size).to(self.device),
+                                      torch.zeros(1, 1, self.lstm_hidden_size).to(self.device))
+        else:
+            self.q_net_hidden = None
+            self.policy_net_hidden = None
     
     def receive_street_start_message(self, street, round_state):
         """Initialize street information"""
@@ -1156,22 +1329,26 @@ class NFSPPlayer(BasePokerPlayer):
         elif action_num == 4:
             community_card = self.community_card_to_tuple(round_state['community_card'][:5])
             
-        self.state = self.get_state(community_card, round_state)
-        terminal_state = self.process_state(self.state)
+        raw_terminal_state = self.get_state(community_card, round_state) # Get raw terminal state
+        processed_terminal_state = self.process_state(raw_terminal_state) # Process it
         
         # Store experiences and calculate TD errors
         for i in range(len(self.history)):
-            state, action = self.history[i]
+            # History stores (processed_state, action_index)
+            processed_state, action_taken = self.history[i] 
             
+            next_processed_state = None
             if i == len(self.history) - 1:
                 # Terminal transition
-                next_state = None
+                next_processed_state = None # For RL, terminal next_state is None
+                                          # Q-learning will use this to set target to just 'reward'
             else:
-                next_state = self.history[i+1][0]
+                next_processed_state = self.history[i+1][0] # Next state is already processed
                 
             # Store transition in BR memory if using best response
-            if self.best_response_mode:
-                self.store_transition(state, action, reward, next_state)
+            # The state and next_state here are already processed
+            if self.best_response_mode: # Check if BR mode was active for this hand
+                self.store_transition(processed_state, action_taken, reward, next_processed_state)
         
         # Update NFSP networks
         self.update()

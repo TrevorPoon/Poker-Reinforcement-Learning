@@ -1,8 +1,3 @@
 Add VPIP and other stats
-a2c vs DQN
-Check out other github
 Randomize positions
-Make a loss function
-
-longjob -28day -c ./run_training.sh
-ps -ef | grep run_training.sh
+Better state representations

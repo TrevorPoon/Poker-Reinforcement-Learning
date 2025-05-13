@@ -35,4 +35,5 @@ export DATASET_DIR=${TMP}/datasets/
 
 source /home/${STUDENT_ID}/miniconda3/bin/activate poker_env
 
-python src/training.py --scenario DN
+python src/training.py --scenario NFSP_vs_NFSP
+

@@ -4,6 +4,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns 
 
+# Standardized action colors
+ACTION_COLORS = {
+    'raise': '#FF6F61',  # Coral Red
+    'call': '#6FA8DC',   # Steel Blue
+    'check': '#93C47D',  # Pistachio Green
+    'fold': '#FFD966'   # Maize Yellow
+}
+ACTIONS_ORDER = ['raise', 'call', 'check', 'fold'] # Consistent order
+
 # Ensure images directory exists
 os.makedirs('images', exist_ok=True)
 
@@ -49,13 +58,13 @@ def plot_action_proportions(action_stat, TITLE, player_num=None):
         
     # Prepare data for each street
     streets = list(action_stat.keys())
-    actions = ['check', 'call', 'raise', 'fold']
+    # Use the globally defined ACTIONS_ORDER
     
     # Calculate proportions for each action on each street
-    proportions = {action: [] for action in actions}
+    proportions = {action: [] for action in ACTIONS_ORDER}
     for street in streets:
         total = sum(action_stat[street].values())  # Total actions on this street
-        for action in actions:
+        for action in ACTIONS_ORDER:
             proportion = action_stat[street].get(action, 0) / total if total > 0 else 0
             proportions[action].append(proportion)
     
@@ -63,9 +72,9 @@ def plot_action_proportions(action_stat, TITLE, player_num=None):
     fig, ax = plt.subplots(figsize=(8, 6))
     bottom = [0] * len(streets)  # Start at zero for each stacked bar
 
-    # Add each action layer to the bar chart
-    for action in actions:
-        ax.bar(streets, proportions[action], label=action, bottom=bottom)
+    # Add each action layer to the bar chart using consistent colors and order
+    for action in ACTIONS_ORDER:
+        ax.bar(streets, proportions[action], label=action, bottom=bottom, color=ACTION_COLORS[action])
         # Update the bottom for the next action layer
         bottom = [i + j for i, j in zip(bottom, proportions[action])]
 
@@ -150,10 +159,9 @@ def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None)
     hand_labels = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
     
     # Initialize matrices to store action percentages for each hand
-    action_colors = ['#FF6F61', '#6FA8DC', '#93C47D', '#FFD966']  # Colors for raise, call, check, fold
-    actions = ['raise', 'call', 'check', 'fold']
-    num_actions = len(actions)
-    grid_data = np.zeros((13, 13, num_actions))  # 13x13 grid with 4 action slots per hand
+    # Use the globally defined ACTIONS_ORDER and ACTION_COLORS
+    num_actions = len(ACTIONS_ORDER)
+    grid_data = np.zeros((13, 13, num_actions))  # 13x13 grid with action slots per hand
     
     # Populate the grid with action frequencies
     for i, rank1 in enumerate(hand_labels):
@@ -166,9 +174,9 @@ def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None)
                 hand = rank2 + rank1 + 'o'
 
             # Retrieve action counts for the hand
-            total_count = sum(card_action_stat.get(action, {}).get(hand, 0) for action in actions)
+            total_count = sum(card_action_stat.get(action, {}).get(hand, 0) for action in ACTIONS_ORDER)
             if total_count > 0:
-                for k, action in enumerate(actions):
+                for k, action in enumerate(ACTIONS_ORDER):
                     grid_data[i, j, k] = card_action_stat.get(action, {}).get(hand, 0) / total_count  # Normalize
 
     # Create the plot
@@ -191,7 +199,8 @@ def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None)
             # Draw segments for each action in the square
             for k, percentage in enumerate(percentages):
                 if percentage > 0:
-                    ax.add_patch(plt.Rectangle((x, y + bottom), square_size, percentage, color=action_colors[k]))
+                    action_name = ACTIONS_ORDER[k]
+                    ax.add_patch(plt.Rectangle((x, y + bottom), square_size, percentage, color=ACTION_COLORS[action_name]))
                     bottom += percentage
 
             # Add text label in the center
@@ -211,10 +220,10 @@ def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None)
 
     # Add legend
     legend_elements = [
-        plt.Line2D([0], [0], color=action_colors[0], lw=4, label='Raise'),
-        plt.Line2D([0], [0], color=action_colors[1], lw=4, label='Call'),
-        plt.Line2D([0], [0], color=action_colors[2], lw=4, label='Check'),
-        plt.Line2D([0], [0], color=action_colors[3], lw=4, label='Fold'),
+        plt.Line2D([0], [0], color=ACTION_COLORS['raise'], lw=4, label='Raise'),
+        plt.Line2D([0], [0], color=ACTION_COLORS['call'], lw=4, label='Call'),
+        plt.Line2D([0], [0], color=ACTION_COLORS['check'], lw=4, label='Check'),
+        plt.Line2D([0], [0], color=ACTION_COLORS['fold'], lw=4, label='Fold'),
     ]
     ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
 
