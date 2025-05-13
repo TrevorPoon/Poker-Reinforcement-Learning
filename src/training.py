@@ -3,7 +3,7 @@ from my_players.NFSPPlayer import NFSPPlayer
 from my_players.HonestPlayer_v2 import HonestPlayer
 from my_players.cardplayer import cardplayer
 from my_players.AllCall import AllCallPlayer
-import utils.Charts
+import utils.Charts 
 
 import os
 import gc
@@ -14,6 +14,7 @@ import subprocess
 import argparse
 from pypokerengine.api.game import setup_config, start_poker
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 plt.style.use('ggplot')
 
 def parse_arguments():
@@ -42,38 +43,6 @@ def reset_to_zero(df):
         else:  # If value is not a dictionary, reset it to 0
             df[key] = 0
     return df
-
-def initialize_dataframes(scenario):
-    # Load data from CSV files if they exist
-    file_paths = {
-        'vpip': f"result/{scenario}_vpip_history.csv",
-        'pfr': f"result/{scenario}_pfr_history.csv",
-        'three_bet': f"result/{scenario}_three_bet_history.csv",
-        'loss': f"result/{scenario}_loss_history.csv",
-        'reward': f"result/{scenario}_reward_history.csv",
-        'policy_loss': f"result/{scenario}_policy_loss_history.csv",  # For NFSP
-        'q_loss': f"result/{scenario}_q_loss_history.csv"  # For NFSP
-    }
-    
-    dataframes = {
-        'vpip_df': pd.DataFrame(),
-        'pfr_df': pd.DataFrame(),
-        'three_bet_df': pd.DataFrame(),
-        'loss_df': pd.DataFrame(),
-        'reward_df': pd.DataFrame(),
-        'policy_loss_df': pd.DataFrame(),  # For NFSP
-        'q_loss_df': pd.DataFrame()  # For NFSP
-    }
-    
-    for key, path in file_paths.items():
-        df_name = f"{key}_df"
-        if os.path.exists(path):
-            try:
-                dataframes[df_name] = pd.read_csv(path)
-            except Exception as e:
-                print(f"Warning: Could not load {path}. Error: {e}")
-    
-    return dataframes
 
 def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
     """Initialize RL agents based on the specified type"""
@@ -129,192 +98,120 @@ def calculate_stats(agent):
     
     return vpip_rate, pfr_rate, three_bet_rate
 
-def log_metrics(agents, num_agents, episode, log_interval, dataframes, scenario, 
-               save_interval=1000, plot_interval=5000):
-    """Log and save metrics for both DQN and NFSP agents"""
-    # Only save CSV files periodically instead of every log interval
-    should_save_csv = (episode % save_interval == 0)
+def log_metrics(agents, num_agents, episode, log_interval, scenario, writer, 
+               plot_interval=5000, gc_interval=10000):
+    """Log metrics using TensorBoard and generate plots periodically."""
+    # Only plot periodically
     should_plot = (episode % plot_interval == 0)
     
     if episode % log_interval != 0:
-        return dataframes
+        return True # Return True to indicate training should continue
     
     print(f"Episode: {episode+1}")
     
-    vpip_history, pfr_history, three_bet_history = [], [], []
-    loss_history, reward_history = [], []
-    policy_loss_history, q_loss_history = [], []  # For NFSP
-    loss_switch = 1
+    # No longer need history lists or dataframes here
+    loss_switch = 1 # Still needed for potential early stopping
     
     # Detect agent type
     agent_type = 'NFSP' if isinstance(agents[0], NFSPPlayer) else 'DQN'
     
+    total_model_loss = 0 # Keep track for early stopping check
+    
     for j in range(num_agents):
         agent = agents[j]
+        agent_tag_prefix = f"Agent_{j+1}"
         
-        # Calculate and log VPIP, PFR, 3-Bet
+        # Calculate VPIP, PFR, 3-Bet
         vpip_rate, pfr_rate, three_bet_rate = calculate_stats(agent)
-        vpip_history.append(vpip_rate)
-        pfr_history.append(pfr_rate)
-        three_bet_history.append(three_bet_rate)
+        
+        # Log scalar metrics to TensorBoard
+        writer.add_scalar(f"{agent_tag_prefix}/VPIP", vpip_rate, episode)
+        writer.add_scalar(f"{agent_tag_prefix}/PFR", pfr_rate, episode)
+        writer.add_scalar(f"{agent_tag_prefix}/3-Bet", three_bet_rate, episode)
         
         print(f"Agent {j+1} - VPIP: {vpip_rate:.2f}%, PFR: {pfr_rate:.2f}%, 3-Bet: {three_bet_rate:.2f}%")
         
         # Log loss based on agent type
+        model_loss = 100 # Default high loss if no loss recorded
         if agent_type == 'DQN':
             if agent.loss:
                 model_loss = agent.loss
-                loss_history.append(model_loss)
+                writer.add_scalar(f"{agent_tag_prefix}/Model_Loss", model_loss, episode)
                 print(f"Model Loss: {model_loss:.5f}")
             else:
                 loss_switch = 0
-                model_loss = 100
         elif agent_type == 'NFSP':
-            # For NFSP, record both Q-network and policy network losses
             if agent.q_loss is not None:
-                q_loss_history.append(agent.q_loss)
-                print(f"Q-Network Loss: {agent.q_loss:.5f}")
-                model_loss = agent.q_loss  # Use Q-loss for early stopping check
+                q_loss = agent.q_loss
+                writer.add_scalar(f"{agent_tag_prefix}/Q_Network_Loss", q_loss, episode)
+                print(f"Q-Network Loss: {q_loss:.5f}")
+                model_loss = q_loss # Use Q-loss for early stopping check
             else:
-                q_loss_history.append(0)
-                model_loss = 100
                 loss_switch = 0
+                model_loss = 100 # Assign high loss if Q_loss is None
                 
             if agent.policy_loss is not None:
-                policy_loss_history.append(agent.policy_loss)
-                print(f"Policy Network Loss: {agent.policy_loss:.5f}")
-            else:
-                policy_loss_history.append(0)
+                policy_loss = agent.policy_loss
+                writer.add_scalar(f"{agent_tag_prefix}/Policy_Network_Loss", policy_loss, episode)
+                print(f"Policy Network Loss: {policy_loss:.5f}")
         
+        total_model_loss += model_loss # Sum loss for early stopping check
+
         # Log reward
         accum_reward = agent.accumulated_reward
-        reward_history.append(accum_reward)
+        writer.add_scalar(f"{agent_tag_prefix}/Reward", accum_reward, episode)
         print(f"Reward: {accum_reward:.2f}")
         
         # Reset counters for next episode
         agent.VPIP = agent.PFR = agent.three_bet = agent.hand_count = 0
-        agent.save_model()
+        agent.save_model() # Still save the model state
         
-        # Generate charts
+        # Generate and log charts to TensorBoard
         if should_plot:
-            agent_prefix = "NFSP" if agent_type == "NFSP" else "DQN"
-            utils.Charts.plot_action_proportions(agent.action_stat, f"Player{j+1}_action_proportions.png", scenario)
-            utils.Charts.plot_hand_reward_heatmap(agent.card_reward_stat, f"Player{j+1}_hand_reward_heatmap.png", scenario)
-            utils.Charts.plot_gto_style_action_grid(agent.card_action_stat['preflop'], f"Player{j+1}_preflop_action_grid.png", scenario)
-            utils.Charts.plot_gto_style_action_grid(agent.card_action_stat['flop'], f"Player{j+1}_flop_action_grid.png", scenario)
-            utils.Charts.plot_gto_style_action_grid(agent.card_action_stat['river'], f"Player{j+1}_river_action_grid.png", scenario)
-            utils.Charts.plot_gto_style_action_grid(agent.card_action_stat['turn'], f"Player{j+1}_turn_action_grid.png", scenario)
+            # Action Proportions
+            fig_actions = utils.Charts.plot_action_proportions(agent.action_stat, scenario, player_num=j+1)
+            if fig_actions:
+                writer.add_figure(f"{agent_tag_prefix}/Action_Proportions", fig_actions, episode)
+                plt.close(fig_actions) # Close the figure after logging
+
+            # Hand Reward Heatmap
+            fig_heatmap = utils.Charts.plot_hand_reward_heatmap(agent.card_reward_stat, scenario, player_num=j+1)
+            if fig_heatmap:
+                writer.add_figure(f"{agent_tag_prefix}/Hand_Reward_Heatmap", fig_heatmap, episode)
+                plt.close(fig_heatmap)
+
+            # GTO Style Action Grids for each street
+            for street in ['preflop', 'flop', 'turn', 'river']:
+                if street in agent.card_action_stat:
+                    fig_grid = utils.Charts.plot_gto_style_action_grid(agent.card_action_stat[street], street, scenario, player_num=j+1)
+                    if fig_grid:
+                        writer.add_figure(f"{agent_tag_prefix}/{street.capitalize()}_Action_Grid", fig_grid, episode)
+                        plt.close(fig_grid) # Close the figure
         
-        # Reset stats periodically
-        if episode % 10000 == 0:
+        # Reset stats periodically (adjust interval as needed)
+        if episode % 10000 == 0 and episode > 0: # Avoid resetting at episode 0
             agent.card_action_stat = reset_to_zero(agent.card_action_stat)
             agent.action_stat = reset_to_zero(agent.action_stat)
+            print(f"Resetting stats for Agent {j+1} at episode {episode}")
+
+    # Remove all DataFrame logic (concatenation, CSV saving)
+    # ... Old DataFrame code removed ...
     
-    # Update dataframes with new metrics
-    vpip_df = dataframes['vpip_df']
-    pfr_df = dataframes['pfr_df']
-    three_bet_df = dataframes['three_bet_df']
-    loss_df = dataframes['loss_df']
-    reward_df = dataframes['reward_df']
+    # Flush writer buffer
+    writer.flush()
     
-    # NFSP-specific dataframes
-    policy_loss_df = dataframes['policy_loss_df'] if agent_type == 'NFSP' else None
-    q_loss_df = dataframes['q_loss_df'] if agent_type == 'NFSP' else None
-    
-    # Create new dataframes for this iteration
-    new_vpip = pd.DataFrame([vpip_history])
-    new_pfr = pd.DataFrame([pfr_history])
-    new_three_bet = pd.DataFrame([three_bet_history])
-    new_loss = pd.DataFrame([loss_history])
-    new_reward = pd.DataFrame([reward_history])
-    
-    # NFSP-specific new dataframes
-    if agent_type == 'NFSP':
-        new_policy_loss = pd.DataFrame([policy_loss_history])
-        new_q_loss = pd.DataFrame([q_loss_history])
-    
-    # Ensure column alignment for concatenation
-    if not vpip_df.empty:
-        new_vpip.columns = vpip_df.columns
-    if not pfr_df.empty:
-        new_pfr.columns = pfr_df.columns
-    if not three_bet_df.empty:
-        new_three_bet.columns = three_bet_df.columns
-    if not loss_df.empty:
-        new_loss.columns = loss_df.columns
-    if not reward_df.empty:
-        new_reward.columns = reward_df.columns
+    # Early stopping check (using average loss across agents)
+    average_loss = total_model_loss / num_agents if num_agents > 0 else 100
+    if loss_switch == 1 and round(average_loss, 5) == 0:
+        print(f"Early stopping triggered due to average loss reaching zero.")
+        return False # Signal to exit the training loop
         
-    # NFSP-specific column alignment
-    if agent_type == 'NFSP':
-        if not policy_loss_df.empty:
-            new_policy_loss.columns = policy_loss_df.columns
-        if not q_loss_df.empty:
-            new_q_loss.columns = q_loss_df.columns
-    
-    # Concatenate new data
-    vpip_df = pd.concat([vpip_df, new_vpip], ignore_index=True)
-    pfr_df = pd.concat([pfr_df, new_pfr], ignore_index=True)
-    three_bet_df = pd.concat([three_bet_df, new_three_bet], ignore_index=True)
-    if loss_switch == 1:
-        loss_df = pd.concat([loss_df, new_loss], ignore_index=True)
-    reward_df = pd.concat([reward_df, new_reward], ignore_index=True)
-    
-    # NFSP-specific concatenation
-    if agent_type == 'NFSP':
-        policy_loss_df = pd.concat([policy_loss_df, new_policy_loss], ignore_index=True)
-        q_loss_df = pd.concat([q_loss_df, new_q_loss], ignore_index=True)
-    
-    # Save to CSV conditionally
-    if should_save_csv:
-        vpip_df.to_csv(f"result/{scenario}_vpip_history.csv", index=False)
-        pfr_df.to_csv(f"result/{scenario}_pfr_history.csv", index=False)
-        three_bet_df.to_csv(f"result/{scenario}_three_bet_history.csv", index=False)
-        loss_df.to_csv(f"result/{scenario}_loss_history.csv", index=False)
-        reward_df.to_csv(f"result/{scenario}_reward_history.csv", index=False)
-        
-        # NFSP-specific CSV saving
-        if agent_type == 'NFSP':
-            policy_loss_df.to_csv(f"result/{scenario}_policy_loss_history.csv", index=False)
-            q_loss_df.to_csv(f"result/{scenario}_q_loss_history.csv", index=False)
-    
-    # Plot metrics
-    if should_plot:
-        # Create the images directory if it doesn't exist
-        os.makedirs('images', exist_ok=True)
-        
-        # Common metrics that apply to all agent types
-        utils.Charts.plot_line_metric(vpip_df, 'VPIP', 'VPIP (%)', 'vpip_history', scenario, num_agents)
-        utils.Charts.plot_line_metric(pfr_df, 'PFR', 'PFR (%)', 'pfr_history', scenario, num_agents)
-        utils.Charts.plot_line_metric(three_bet_df, '3-Bet %', '3-Bet %', 'three_bet_history', scenario, num_agents)
-        utils.Charts.plot_line_metric(reward_df, 'Reward', 'Reward', 'Reward', scenario, num_agents)
-        
-        # Agent-specific metrics
-        if agent_type == 'DQN' and loss_switch == 1 and not loss_df.empty:
-            utils.Charts.plot_line_metric(loss_df, 'Model Loss', 'Loss', 'model_loss', scenario, num_agents)
-        elif agent_type == 'NFSP':
-            if not policy_loss_df.empty and policy_loss_df.shape[1] > 0:
-                utils.Charts.plot_line_metric(policy_loss_df, 'Policy Loss', 'Loss', 'policy_loss', scenario, num_agents)
-            if not q_loss_df.empty and q_loss_df.shape[1] > 0:
-                utils.Charts.plot_line_metric(q_loss_df, 'Q-Network Loss', 'Loss', 'q_loss', scenario, num_agents)
-    
-    # Early stopping check
-    if loss_switch == 1 and round(model_loss, 5) == 0:
-        return None  # Signal to exit the training loop
-    
-    # Update dataframes dictionary
-    dataframes['vpip_df'] = vpip_df
-    dataframes['pfr_df'] = pfr_df
-    dataframes['three_bet_df'] = three_bet_df
-    dataframes['loss_df'] = loss_df
-    dataframes['reward_df'] = reward_df
-    
-    # NFSP-specific dictionary updates
-    if agent_type == 'NFSP':
-        dataframes['policy_loss_df'] = policy_loss_df
-        dataframes['q_loss_df'] = q_loss_df
-    
-    return dataframes
+    # Garbage collection periodically
+    if (episode + 1) % gc_interval == 0:
+        gc.collect()
+        print(f"Garbage collection performed at episode {episode+1}")
+
+    return True # Continue training
 
 def main():
     args = parse_arguments()
@@ -327,7 +224,7 @@ def main():
     max_round = args.max_rounds
     initial_stack = args.initial_stack
     small_blind_amount = args.small_blind
-    save_interval = args.save_interval
+    # save_interval = args.save_interval # No longer needed
     plot_interval = args.plot_interval
     gc_interval = args.gc_interval
     
@@ -340,17 +237,22 @@ def main():
     
     opponent_type = scenario.split('_vs_')[1]
     
+    # Initialize TensorBoard writer
+    log_dir = f"result/runs/{scenario}" # Define log directory
+    writer = SummaryWriter(log_dir)
+    print(f"TensorBoard logs will be saved to: {log_dir}")
+    
     # Initialize
-    subprocess.run(["python", "src/utils/Clear.py"], check=True)
+    # subprocess.run(["python", "src/utils/Clear.py"], check=True) # Optional: Decide if you still need this
     
     # Make sure model directories exist
     os.makedirs('models', exist_ok=True)
-    os.makedirs('result', exist_ok=True)
+    # os.makedirs('result', exist_ok=True) # No longer saving CSV results here
     
     print(f"Starting {agent_type} training against {opponent_type}")
     print(f"Scenario: {scenario}, Episodes: {num_episodes}, Agents: {num_agents}")
     
-    dataframes = initialize_dataframes(scenario)
+    # dataframes = initialize_dataframes(scenario) # No longer needed
     agents = initialize_agents(scenario, num_agents, training_mode, agent_type)
     config = setup_game_config(agents, num_agents, opponent_type, max_round, initial_stack, small_blind_amount)
     
@@ -359,20 +261,21 @@ def main():
         game_result = start_poker(config, verbose=0)
         
         # Log metrics and update dataframes
-        dataframes = log_metrics(
-            agents, num_agents, i, log_interval, dataframes, scenario, 
-            save_interval, plot_interval
+        continue_training = log_metrics(
+            agents, num_agents, i, log_interval, scenario, writer, 
+            plot_interval, gc_interval # Pass writer and gc_interval
         )
         
         # Check if we should exit early
-        if dataframes is None:
+        if not continue_training:
             print("Early stopping triggered. Exiting...")
             break
             
-        # Garbage collection periodically
-        if (i + 1) % gc_interval == 0:
-            gc.collect()
-            print(f"Garbage collection performed at episode {i+1}")
+        # Garbage collection check moved inside log_metrics
+
+    # Close the TensorBoard writer
+    writer.close()
+    print("Training finished. TensorBoard writer closed.")
 
 if __name__ == "__main__":
     main()

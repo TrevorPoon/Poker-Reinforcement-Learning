@@ -40,47 +40,12 @@ def apply_professional_formatting():
     plt.gcf().set_facecolor('#f9f9f9')
     plt.gca().set_facecolor('#ffffff')
 
-def plot_line_metric(df, metric_name, ylabel, file_suffix, TITLE, NUM_OF_AGENTS):
-    """Plots both raw and smoothed graphs for a given metric."""
-    # Check if dataframe is empty
-    if df.empty:
-        print(f"Warning: Empty dataframe, cannot plot {metric_name}")
-        return
-        
-    # Plot raw data
-    plt.figure(figsize=(12, 6))
-    # Only plot data for agents that have columns in the dataframe
-    actual_columns = min(NUM_OF_AGENTS, df.shape[1])
-    for j in range(actual_columns):
-        plt.plot(df.iloc[:, j], label=f'Player {j+1} {metric_name}', linewidth=2)
-    plt.title(f'{metric_name} History of All Players (Total: {NUM_OF_AGENTS})')
-    plt.xlabel('Episodes (every 100 episodes)')
-    plt.ylabel(ylabel)
-    apply_professional_formatting()
-    plt.savefig(f'images/{TITLE}_{file_suffix}_players.png')
-    plt.close()
-    
-    # Plot smoothed data
-    plt.figure(figsize=(12, 6))
-    for j in range(actual_columns):
-        # Skip if series is empty
-        if len(df.iloc[:, j]) == 0:
-            continue
-        smoothed_data = moving_average(df.iloc[:, j])
-        plt.plot(range(len(smoothed_data)), smoothed_data, linestyle='--', 
-                 label=f'Player {j+1} Smoothed {metric_name}', alpha=0.8, linewidth=2)
-    plt.title(f'Smoothed {metric_name} History of All Players (Total: {NUM_OF_AGENTS})')
-    plt.xlabel('Episodes (every 100 episodes)')
-    plt.ylabel(ylabel)
-    apply_professional_formatting()
-    plt.savefig(f'images/{TITLE}_{file_suffix}_smoothed_players.png')
-    plt.close()
-
-def plot_action_proportions(action_stat, filename, TITLE, player_num=None):
+def plot_action_proportions(action_stat, TITLE, player_num=None):
+    """Generates a figure showing the proportion of actions at each street."""
     # Check if there are any actions recorded
     if not action_stat:
-        print(f"Warning: No action stats to plot for {filename}")
-        return
+        print(f"Warning: No action stats to plot for player {player_num}")
+        return None # Return None if no data
         
     # Prepare data for each street
     streets = list(action_stat.keys())
@@ -107,21 +72,20 @@ def plot_action_proportions(action_stat, filename, TITLE, player_num=None):
     # Add labels and title with player number if provided
     ax.set_xlabel("Street")
     ax.set_ylabel("Proportion")
+    ax.legend(title="Actions")
     if player_num is not None:
         ax.set_title(f"Proportion of Actions at Each Street (Player {player_num})")
-        plt.savefig(f'images/{TITLE}_{filename}_player_{player_num}.png', format="png")
     else:
         ax.set_title("Proportion of Actions at Each Street")
-        plt.savefig(f'images/{TITLE}_{filename}.png', format="png")
     
-    ax.legend(title="Actions")
-    plt.close()
+    return fig # Return the figure object
 
-def plot_hand_reward_heatmap(hand_reward_stat, filename, TITLE, player_num=None):
+def plot_hand_reward_heatmap(hand_reward_stat, TITLE, player_num=None):
+    """Generates a heatmap figure of hand rewards."""
     # Check if hand_reward_stat is empty or None
     if not hand_reward_stat:
-        print(f"Warning: No hand reward stats to plot for {filename}")
-        return
+        print(f"Warning: No hand reward stats to plot for player {player_num}")
+        return None # Return None if no data
         
     # Define hand categories
     hands = hand_reward_stat
@@ -151,7 +115,7 @@ def plot_hand_reward_heatmap(hand_reward_stat, filename, TITLE, player_num=None)
             label_matrix[i, j] = f"{hand}\n{reward_value:.2f}" if not np.isnan(reward_value) else hand
 
     # Create the heatmap with both hand labels and values as annotations
-    plt.figure(figsize=(12, 12))
+    fig, ax = plt.subplots(figsize=(12, 12))
     ax = sns.heatmap(reward_matrix, annot=label_matrix, fmt="", cmap="RdYlGn", square=True,
                      linewidths=0.5, cbar_kws={'label': 'Reward Value'},
                      xticklabels=labels, yticklabels=labels)
@@ -159,30 +123,28 @@ def plot_hand_reward_heatmap(hand_reward_stat, filename, TITLE, player_num=None)
     # Set the plot title and labels with player number if provided
     if player_num is not None:
         ax.set_title(f"Hand Reward Heatmap (Player {player_num})")
-        plt.savefig(f'images/{TITLE}_{filename}_player_{player_num}.png', format="png")
     else:
         ax.set_title("Hand Reward Heatmap")
-        plt.savefig(f'images/{TITLE}_{filename}.png', format="png")
 
     # Save the heatmap as an image file
     plt.tight_layout()
-    plt.close()
+    return fig # Return the current figure object
 
-def plot_gto_style_action_grid(card_action_stat, filename, TITLE, player_num=None):
+def plot_gto_style_action_grid(card_action_stat, street, TITLE, player_num=None):
     """
-    Plot a GTO-style action grid showing the percentage distribution of actions
-    for each hand combination in a grid format.
+    Generates a GTO-style action grid figure showing the percentage distribution of actions
+    for each hand combination in a grid format for a specific street.
     
     Args:
-        card_action_stat (dict): Nested dictionary with actions and hand frequencies.
-        filename (str): Name of the output image file.
-        TITLE (str): Title for the generated grid.
+        card_action_stat (dict): Action frequencies for the specific street.
+        street (str): The street name (e.g., 'preflop', 'flop').
+        TITLE (str): Title prefix for the generated grid.
         player_num (int, optional): The player number for the chart title.
     """
-    # Check if card_action_stat is empty or None
+    # Check if card_action_stat for the specific street is empty or None
     if not card_action_stat:
-        print(f"Warning: No card action stats to plot for {filename}")
-        return
+        print(f"Warning: No card action stats for street '{street}' to plot for player {player_num}")
+        return None # Return None if no data
         
     # Define hand labels for the axes
     hand_labels = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
@@ -257,13 +219,12 @@ def plot_gto_style_action_grid(card_action_stat, filename, TITLE, player_num=Non
     ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
 
     # Set the title with player number if provided
+    title_suffix = f": {street.capitalize()} Action Frequency Grid"
     if player_num is not None:
-        ax.set_title(f"{TITLE}: Action Frequency Grid (Player {player_num})", fontsize=16)
-        plt.savefig(f'images/{TITLE}_{filename}_player_{player_num}.png', format="png")
+        ax.set_title(f"{TITLE} (Player {player_num}){title_suffix}", fontsize=16)
     else:
-        ax.set_title(f"{TITLE}: Action Frequency Grid", fontsize=16)
-        plt.savefig(f'images/{TITLE}_{filename}.png', format="png")
+        ax.set_title(f"{TITLE}{title_suffix}", fontsize=16)
 
     # Save the plot
     plt.tight_layout()
-    plt.close()
+    return fig # Return the figure object
