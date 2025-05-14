@@ -824,7 +824,6 @@ class NFSPPlayer(BasePokerPlayer):
                 if action_str == "raise" and not self.last_3_bet_action: # 3-Bet: a reraise
                     is_3bet = False
                     raises_in_history = [act for act in pre_flop_actions_history if act['action'] == 'RAISE'] # You must capitalize the action
-                    print(raises_in_history) 
                     if len(raises_in_history) >= 1: # There was at least one prior raise
                         is_3bet = True
                     if is_3bet:
