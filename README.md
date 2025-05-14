@@ -35,7 +35,6 @@ The AI agents employ reinforcement learning algorithms including Deep Q-Networks
 ```bash
 git clone https://github.com/TrevorPoon/Poker-Reinforcement-Learning.git
 cd Poker-Reinforcement-Learning
-pip install -r requirements.txt
 mkdir -p models result/runs result/log images
 ```
 

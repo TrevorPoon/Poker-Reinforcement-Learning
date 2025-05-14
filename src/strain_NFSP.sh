@@ -1,10 +1,10 @@
 #!/bin/sh
 #SBATCH -N 1	  # nodes requested
 #SBATCH -n 1	  # tasks requested
-#SBATCH --partition=Teach-Standard
+#SBATCH --partition=Teach-LongJobs
 #SBATCH --gres=gpu:8
 #SBATCH --mem=96000  # memory in Mb
-#SBATCH --time=0-08:00:00
+#SBATCH --time=0-80:00:00
 #SBATCH --output=result/slurm/slurm-%j.out   # %j = Job ID
 
 export CUDA_HOME=/opt/cuda-9.0.176.1/
@@ -33,7 +33,7 @@ export TMP=/disk/scratch/${STUDENT_ID}/
 mkdir -p ${TMP}/datasets/
 export DATASET_DIR=${TMP}/datasets/
 
-source /home/${STUDENT_ID}/miniconda3/bin/activate poker_env
+source /home/${STUDENT_ID}/miniconda3/bin/activate poker
 
 python src/training.py --scenario NFSP_vs_NFSP
 

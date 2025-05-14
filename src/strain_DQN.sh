@@ -33,6 +33,6 @@ export TMP=/disk/scratch/${STUDENT_ID}/
 mkdir -p ${TMP}/datasets/
 export DATASET_DIR=${TMP}/datasets/
 
-source /home/${STUDENT_ID}/miniconda3/bin/activate poker_env
+source /home/${STUDENT_ID}/miniconda3/bin/activate poker
 
 python src/training.py --scenario DQN_vs_DQN
