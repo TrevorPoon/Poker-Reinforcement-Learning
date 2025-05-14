@@ -26,6 +26,9 @@ if torch.cuda.is_available():
 # Add for logging
 import logging
 
+# Add random for shuffling
+import random
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Poker RL Training')
     parser.add_argument('--episodes', type=int, default=10000000, help='Number of episodes')
@@ -334,18 +337,48 @@ def main():
     logger.info(f"Scenario: {scenario}, Episodes: {num_episodes}, Agents: {num_agents}")
     
     # dataframes = initialize_dataframes(scenario) # No longer needed
-    agents = initialize_agents(scenario, num_agents, training_mode, agent_type)
-    config = setup_game_config(agents, num_agents, opponent_type, max_round, initial_stack, small_blind_amount)
+    rl_agents = initialize_agents(scenario, num_agents, training_mode, agent_type)
     
+    # Create a list of all player algorithms for shuffling
+    all_player_algorithms = list(rl_agents)
+    num_total_players = 6 # Assuming a 6-player game
+    num_opponents_to_add = num_total_players - num_agents
+
+    if opponent_type == "Honest":
+        for _ in range(num_opponents_to_add):
+            all_player_algorithms.append(HonestPlayer())
+    elif opponent_type == "AllCall":
+        for _ in range(num_opponents_to_add):
+            all_player_algorithms.append(AllCallPlayer())
+    elif opponent_type in ["DQN", "NFSP"]:
+        # In self-play scenarios, num_agents should be num_total_players,
+        # so num_opponents_to_add will be 0.
+        # all_player_algorithms already contains all RL agents.
+        pass
+
     # Training loop
     for i in range(num_episodes):
+        # Shuffle player positions for the new game
+        random.shuffle(all_player_algorithms)
+        
+        # Setup game configuration for the current episode
+        config = setup_config(max_round=max_round, initial_stack=initial_stack, small_blind_amount=small_blind_amount)
+        for player_idx, player_algo in enumerate(all_player_algorithms):
+            config.register_player(name=f"p{player_idx+1}", algorithm=player_algo)
+            # If agents need to know their player_id within the game instance,
+            # this might need to be updated if they relied on fixed registration.
+            # However, pypokerengine assigns UUIDs and player_id is received in game_start_message.
+
         game_result = start_poker(config, verbose=0)
         
         # Log metrics and update dataframes
+        # When logging, agents are accessed from the rl_agents list, which is not shuffled.
+        # Their internal states (like model paths dqn_agent{j+1}) remain consistent.
+        # The shuffling only affects their seat in the game.
         continue_training = log_metrics(
-            agents, num_agents, i, log_interval, scenario, writer, 
-            metrics_history, # Pass metrics_history
-            plot_interval, gc_interval # Pass writer and gc_interval
+            rl_agents, num_agents, i, log_interval, scenario, writer, 
+            metrics_history,
+            plot_interval, gc_interval
         )
         
         # Check if we should exit early

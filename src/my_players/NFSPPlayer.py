@@ -23,12 +23,6 @@ epsilon_end = 0.001
 epsilon_decay = 500000
 min_buffer_size_for_training = 1000
 
-# Position constants
-EARLY_POSITION = 0
-MIDDLE_POSITION = 1
-LATE_POSITION = 2
-BLINDS = 3 # Includes SB and BB
-
 # Max players for one-hot encoding position
 MAX_PLAYERS = 6
 
