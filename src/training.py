@@ -3,6 +3,7 @@ from my_players.NFSPPlayer import NFSPPlayer
 from my_players.HonestPlayer_v2 import HonestPlayer
 from my_players.cardplayer import cardplayer
 from my_players.AllCall import AllCallPlayer
+from my_players.PPOPlayer import PPOPlayer
 import utils.Charts 
 
 import os
@@ -35,7 +36,8 @@ def parse_arguments():
     parser.add_argument('--log-interval', type=int, default=100, help='Logging interval')
     parser.add_argument('--scenario', type=str, default='DQN_vs_DQN', 
                         choices=['DQN_vs_Honest', 'DQN_vs_AllCall', 'DQN_vs_DQN',
-                                'NFSP_vs_Honest', 'NFSP_vs_AllCall', 'NFSP_vs_NFSP', 'NFSP_vs_DQN'],
+                                'NFSP_vs_Honest', 'NFSP_vs_AllCall', 'NFSP_vs_NFSP',
+                                'PPO_vs_Honest', 'PPO_vs_AllCall', 'PPO_vs_PPO'],
                         help='Training scenario')
     parser.add_argument('--training', action='store_true', default=True, help='Training mode')
     parser.add_argument('--agents', type=int, default=None, 
@@ -63,7 +65,12 @@ def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
     
     # Determine agent type from scenario if not explicitly provided
     if agent_type is None:
-        agent_type = 'NFSP' if scenario.startswith('NFSP') else 'DQN'
+        if scenario.startswith('NFSP'):
+            agent_type = 'NFSP'
+        elif scenario.startswith('PPO'):
+            agent_type = 'PPO'
+        else:
+            agent_type = 'DQN'
     
     if agent_type == 'DQN':
         for i in range(num_agents):
@@ -77,6 +84,13 @@ def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
             q_optimizer_path = os.getcwd() + f'/models/nfsp_q_optim_agent{i+1}_{scenario}.pt'
             policy_optimizer_path = os.getcwd() + f'/models/nfsp_policy_optim_agent{i+1}_{scenario}.pt'
             agents.append(NFSPPlayer(q_model_path, policy_model_path, q_optimizer_path, policy_optimizer_path, training_mode))
+    elif agent_type == 'PPO':
+        for i in range(num_agents):
+            actor_model_path = os.getcwd() + f'/models/ppo_actor_agent{i+1}_{scenario}.pt'
+            critic_model_path = os.getcwd() + f'/models/ppo_critic_agent{i+1}_{scenario}.pt'
+            actor_optimizer_path = os.getcwd() + f'/models/ppo_actor_optim_agent{i+1}_{scenario}.pt'
+            critic_optimizer_path = os.getcwd() + f'/models/ppo_critic_optim_agent{i+1}_{scenario}.pt'
+            agents.append(PPOPlayer(actor_model_path, critic_model_path, actor_optimizer_path, critic_optimizer_path, training_mode))
     
     return agents
 
@@ -93,7 +107,7 @@ def setup_game_config(agents, num_agents, opponent_type, max_round, initial_stac
             config.register_player(name=f"p{i+1}", algorithm=HonestPlayer())
         elif opponent_type == "AllCall":
             config.register_player(name=f"p{i+1}", algorithm=AllCallPlayer())
-        elif opponent_type in ["DQN", "NFSP"]:
+        elif opponent_type in ["DQN", "NFSP", "PPO"]:
             # If we're doing self-play, all agents should be registered already
             pass
     
@@ -131,7 +145,12 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
     loss_switch = 1 # Still needed for potential early stopping
     
     # Detect agent type
-    agent_type = 'NFSP' if isinstance(agents[0], NFSPPlayer) else 'DQN'
+    if isinstance(agents[0], NFSPPlayer):
+        agent_type = 'NFSP'
+    elif isinstance(agents[0], PPOPlayer):
+        agent_type = 'PPO'
+    else:
+        agent_type = 'DQN'
     
     total_model_loss = 0 # Keep track for early stopping check
     
@@ -157,29 +176,39 @@ def log_metrics(agents, num_agents, episode, log_interval, scenario, writer,
         
         # Log loss based on agent type
         model_loss_value = np.nan # Default to NaN if no loss
+        
         if agent_type == 'DQN':
-            if agent.loss is not None: # Assuming agent.loss is a scalar or can be treated as one
+            if agent.loss is not None: 
                 model_loss_value = agent.loss if isinstance(agent.loss, (int, float)) else np.mean(agent.loss) if isinstance(agent.loss, list) and agent.loss else np.nan
                 writer.add_scalar(f"{agent_tag_prefix}/Model_Loss", model_loss_value, episode)
-                # logger.info(f"Agent {j+1} - Model Loss: {model_loss_value:.5f}")
             else:
                 loss_switch = 0
         elif agent_type == 'NFSP':
             if agent.q_loss is not None:
-                model_loss_value = agent.q_loss
-                writer.add_scalar(f"{agent_tag_prefix}/Q_Network_Loss", model_loss_value, episode)
-                # logger.info(f"Agent {j+1} - Q-Network Loss: {model_loss_value:.5f}")
+                model_loss_value = agent.q_loss # NFSP's primary reported loss for combined metrics
+                writer.add_scalar(f"{agent_tag_prefix}/Q_Network_Loss", agent.q_loss, episode)
             else:
                 loss_switch = 0
-                # model_loss_value remains np.nan
-                
             if agent.policy_loss is not None:
-                policy_loss_value = agent.policy_loss
-                writer.add_scalar(f"{agent_tag_prefix}/Policy_Network_Loss", policy_loss_value, episode)
-                # logger.info(f"Agent {j+1} - Policy Network Loss: {policy_loss_value:.5f}")
+                writer.add_scalar(f"{agent_tag_prefix}/Policy_Network_Loss", agent.policy_loss, episode)
+        elif agent_type == 'PPO':
+            if agent.loss is not None: # This is actor_loss + critic_loss from PPOPlayer
+                model_loss_value = agent.loss
+                writer.add_scalar(f"{agent_tag_prefix}/Model_Loss", model_loss_value, episode)
+            else:
+                loss_switch = 0 # If no combined loss, treat as no loss for early stopping
+            
+            actor_loss_value = np.nan
+            critic_loss_value = np.nan
+            if agent.last_loss_actor is not None:
+                actor_loss_value = agent.last_loss_actor
+                writer.add_scalar(f"{agent_tag_prefix}/Actor_Loss", actor_loss_value, episode)
+            if agent.last_loss_critic is not None:
+                critic_loss_value = agent.last_loss_critic
+                writer.add_scalar(f"{agent_tag_prefix}/Critic_Loss", critic_loss_value, episode)
         
         metrics_history["Model_Loss"][agent_name_for_history].append(model_loss_value)
-        total_model_loss += model_loss_value if not np.isnan(model_loss_value) else 0 # Sum valid loss for early stopping check
+        total_model_loss += model_loss_value if not np.isnan(model_loss_value) else 0
 
         # Log reward (individual agent view)
         accum_reward = agent.accumulated_reward
@@ -315,7 +344,7 @@ def main():
     agent_type = scenario.split('_vs_')[0]
     # Determine number of agents and opponent type
     num_agents = args.agents if args.agents is not None else \
-                (6 if scenario.endswith('_vs_NFSP') or scenario.endswith('_vs_DQN') else 1)
+                (6 if scenario.endswith('_vs_NFSP') or scenario.endswith('_vs_DQN') or scenario.endswith('_vs_PPO') else 1)
     opponent_type = scenario.split('_vs_')[1]
     
     # Initialize TensorBoard writer
@@ -350,7 +379,7 @@ def main():
     elif opponent_type == "AllCall":
         for _ in range(num_opponents_to_add):
             all_player_algorithms.append(AllCallPlayer())
-    elif opponent_type in ["DQN", "NFSP"]:
+    elif opponent_type in ["DQN", "NFSP", "PPO"]:
         # In self-play scenarios, num_agents should be num_total_players,
         # so num_opponents_to_add will be 0.
         # all_player_algorithms already contains all RL agents.
