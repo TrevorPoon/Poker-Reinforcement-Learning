@@ -2,7 +2,7 @@
 
 A ML project focused on developing AI agents for playing poker, with primary emphasis on Texas Hold'em.
 
-## Project Description
+## 1. Project Description
 
 This project explores the application of RL algorithms to develop strategic poker-playing agents. The system trains AI players that learn optimal poker strategies through self-play and by competing against different opponent types.
 
@@ -15,7 +15,7 @@ The project addresses the complex challenge of decision-making under uncertainty
 
 The AI agents employ reinforcement learning algorithms including PPO to discover effective poker strategies through extensive training.
 
-## Poker Statistics
+## 2. Poker Statistics
 
 ###  PPO Agents in a 6-max 100BB Cash Game
 
@@ -25,7 +25,7 @@ The AI agents employ reinforcement learning algorithms including PPO to discover
 
 ![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
 
-## Addressed Questions
+## 3. Addressed Questions
 
 ### Why PPO is a better choice than NFSP and DQN?
 
@@ -53,7 +53,7 @@ In poker, especially 6-max, players should ideally adopt a symmetric equilibrium
 
 
 
-## Installation Instructions
+## 4. Installation Instructions
 
 ### Prerequisites
 
@@ -97,7 +97,7 @@ This provides visualizations of training metrics including:
 * Hand reward heatmaps
 
 
-## Configuration
+## 5. Configuration
 
 ### training.py arguments:
 
@@ -115,7 +115,7 @@ This provides visualizations of training metrics including:
 | --gc-interval   | Garbage collection frequency                 | 10000        |
 
 
-## Attribution
+## 6. Attribution
 
 Special thanks to **PyPokerEngine** for providing the poker simulation framework.
 
