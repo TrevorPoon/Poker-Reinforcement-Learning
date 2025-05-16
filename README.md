@@ -24,6 +24,34 @@ The AI agents employ reinforcement learning algorithms including PPO to discover
 
 ![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
 
+## Addressed Question
+
+### Why PPO is a better choice than NFSP and DQN?
+
+#### Stability and Sample Efficiency (vs DQN)
+DQN is an off-policy method relying on value function approximation, which becomes unstable in multi-agent poker due to non-stationary dynamics (each opponent's strategy evolves over time).
+
+PPO is an on-policy policy gradient method with clipping, which stabilizes updates by limiting how much the policy can change per iteration. This is particularly important in poker where small shifts in policy can lead to drastic downstream effects (e.g., bluffing ranges changing).
+
+#### Credit Assignment and Temporal Dependency (vs NFSP)
+
+NFSP mixes best-response learning (Q-learning) and supervised learning to mimic average policy. While elegant, its reliance on experience replay and dual-memory structure can delay adaptation to changing strategies.
+
+PPO with LSTM explicitly models temporal dependencies via recurrent networks. This allows PPO agents to learn how earlier actions influence later states (important in poker across betting rounds).
+
+### Why sharing parameters across agents helps reach Nash Equilibrium? 
+
+#### Shared Policy = Faster Convergence to Stationary Strategy
+In self-play, a Nash equilibrium is reached when all agents’ strategies are best responses to each other. Sharing parameters forces all agents to explore and update a single shared policy. This promotes mutual adaptation, rather than separate overfitting.
+
+#### Reduces Non-Stationarity
+Multi-agent learning suffers from non-stationary environments—as each agent learns, the environment changes for others. Sharing parameters synchronizes their updates, making the environment more stable and promoting convergence.
+
+#### Encourages Symmetric Play
+In poker, especially 6-max, players should ideally adopt a symmetric equilibrium strategy (e.g., same preflop ranges from same positions). Shared models inherently enforce symmetry, accelerating convergence to equilibrium-like behavior.
+
+
+
 ## Installation Instructions
 
 ### Prerequisites
@@ -86,9 +114,7 @@ This provides visualizations of training metrics including:
 | --gc-interval   | Garbage collection frequency                 | 10000        |
 
 
-## License and Attribution
-
-This project is licensed under the MIT License. See `LICENSE` for more.
+## Attribution
 
 Special thanks to **PyPokerEngine** for providing the poker simulation framework.
 
