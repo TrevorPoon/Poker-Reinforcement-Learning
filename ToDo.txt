@@ -1,3 +1,5 @@
 Raising Actions
 Understand the code of training and Player
 Evaluation 
+
+Check
