@@ -64,7 +64,7 @@ def reset_to_zero(df):
 
 METRICS_TO_LOG_COMBINED = ["VPIP", "PFR", "3-Bet", "Model_Loss", "Reward"]
 
-def initialize_agents(scenario, num_agents, training_mode, args, agent_type=None):
+def initialize_agents(scenario, num_agents, training_mode, args, log_timestamp, agent_type=None):
     """Initialize RL agents based on the specified type"""
     agents = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -112,8 +112,8 @@ def initialize_agents(scenario, num_agents, training_mode, args, agent_type=None
     
     if agent_type == 'DQN':
         for i in range(num_agents):
-            model_path = os.getcwd() + f'/models/dqn_agent{i+1}_{scenario}.pt'
-            optimizer_path = os.getcwd() + f'/models/dqn_agent{i+1}_optim_{scenario}.pt'
+            model_path = os.getcwd() + f'/models/dqn_agent{i+1}_{scenario}_{log_timestamp}.pt'
+            optimizer_path = os.getcwd() + f'/models/dqn_agent{i+1}_optim_{scenario}_{log_timestamp}.pt'
             agents.append(DQNPlayer(model_path, optimizer_path, training_mode))
     elif agent_type == 'NFSP':
         if num_agents > 0 and shared_nfsp_q_net is None: # Create shared instances only once
@@ -149,10 +149,10 @@ def initialize_agents(scenario, num_agents, training_mode, args, agent_type=None
             shared_nfsp_policy_optimizer = optim.Adam(shared_nfsp_policy_net.parameters(), lr=learning_rate_avg)
 
             # Define save paths for shared NFSP components
-            nfsp_q_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_net_{scenario}.pt'
-            nfsp_policy_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_net_{scenario}.pt'
-            nfsp_q_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_opt_{scenario}.pt'
-            nfsp_policy_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_opt_{scenario}.pt'
+            nfsp_q_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_net{scenario}_{log_timestamp}.pt'
+            nfsp_policy_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_net{scenario}_{log_timestamp}.pt'
+            nfsp_q_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_opt{scenario}_{log_timestamp}.pt'
+            nfsp_policy_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_opt{scenario}_{log_timestamp}.pt'
 
             # Attempt to load shared models and optimizers
             try:
@@ -201,8 +201,8 @@ def initialize_agents(scenario, num_agents, training_mode, args, agent_type=None
             shared_ppo_optimizer = optim.Adam(shared_ppo_network.parameters(), lr=PPO_LEARNING_RATE_ACTOR_CRITIC)
             
             # Define save paths for the shared model and optimizer
-            ppo_model_save_path = os.getcwd() + f'/models/ppo_SHARED_actor_critic_{scenario}.pt'
-            ppo_optimizer_save_path = os.getcwd() + f'/models/ppo_SHARED_optimizer_{scenario}.pt'
+            ppo_model_save_path = os.getcwd() + f'/models/ppo_SHARED_actor_critic{scenario}_{log_timestamp}.pt'
+            ppo_optimizer_save_path = os.getcwd() + f'/models/ppo_SHARED_optimizer{scenario}_{log_timestamp}.pt'
 
             # Attempt to load the shared model/optimizer once here
             try:
@@ -500,7 +500,7 @@ def main():
     logger.info(f"Scenario: {scenario}, Episodes: {num_episodes}, Agents: {num_agents}")
     
     # dataframes = initialize_dataframes(scenario) # No longer needed
-    rl_agents = initialize_agents(scenario, num_agents, training_mode, args, agent_type)
+    rl_agents = initialize_agents(scenario, num_agents, training_mode, args, log_timestamp, agent_type)
     
     # Create a list of all player algorithms for shuffling
     all_player_algorithms = list(rl_agents)

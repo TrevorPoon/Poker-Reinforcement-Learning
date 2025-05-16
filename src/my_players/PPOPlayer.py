@@ -224,7 +224,7 @@ class PPOPlayer(BasePokerPlayer):
                  model_save_path, optimizer_save_path, 
                  training=True,
                  initial_stack=100, # Added initial_stack
-                 small_blind=1,     # Added small_blind (can be used for reference if needed)
+                 small_blind=0.5,     # Added small_blind (can be used for reference if needed)
                  card_embedding_dim=16, num_feats=85, 
                  num_card_indices_in_state=7, num_actions=11, 
                  lstm_hidden_size=128): # card_embedding_dim is a network param, but kept for consistency if player logic needs it
@@ -350,13 +350,12 @@ class PPOPlayer(BasePokerPlayer):
         s_list = list(s_tuple)
         
         # Dynamic normalization values based on initial_stack
-        norm_pot_avg = self.initial_stack * 2.0 
-        norm_pot_range = self.initial_stack * 2.0 
+        norm_pot_avg = self.initial_stack  
+        norm_pot_range = self.initial_stack 
         norm_stack_avg = self.initial_stack
         norm_stack_range = self.initial_stack 
-        norm_bet_avg = self.initial_stack / 2.0 
-        norm_bet_range = self.initial_stack / 2.0
-    
+        norm_bet_avg = self.initial_stack  
+        norm_bet_range = self.initial_stack 
         # s_list[7] = Pot size
         if len(s_list) > 7: s_list[7] = (s_list[7] - norm_pot_avg) / norm_pot_range
         

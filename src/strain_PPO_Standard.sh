@@ -35,5 +35,5 @@ export DATASET_DIR=${TMP}/datasets/
 
 source /home/${STUDENT_ID}/miniconda3/bin/activate poker
 
-python src/training.py --scenario PPO_vs_PPO
+python src/training.py --scenario PPO_vs_PPO --initial-stack 1000 --small-blind 5
 

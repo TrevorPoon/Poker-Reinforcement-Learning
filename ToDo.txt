@@ -1,5 +1,3 @@
-Add VPIP and other stats
-Randomize positions
-Better state representations
+Raising Actions
 Understand the code of training and Player
-MCTS? 
+Evaluation 
