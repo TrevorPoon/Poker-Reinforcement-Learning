@@ -165,9 +165,16 @@ class PolicyNetwork(nn.Module):
         return x_fc, hidden
 
 class NFSPPlayer(BasePokerPlayer):
-    def __init__(self, q_model_path, policy_model_path, q_optimizer_path, policy_optimizer_path, training=True,
+    def __init__(self, 
+                 shared_q_net, shared_target_q_net, shared_policy_net,
+                 shared_q_optimizer, shared_policy_optimizer,
+                 q_model_save_path, policy_model_save_path,
+                 q_optimizer_save_path, policy_optimizer_save_path,
+                 training=True,
                  card_embedding_dim=16, sl_update_freq=1, br_update_freq=1, polyak_tau=0.005,
-                 anticipatory_param_start=0.1, anticipatory_param_end=0.1, anticipatory_param_decay=1000000): # Default to fixed if start=end
+                 anticipatory_param_start=0.1, anticipatory_param_end=0.1, anticipatory_param_decay=1000000,
+                 # Network/Player Structure parameters, still needed for player logic and for training.py to init shared nets
+                 num_feats=85, num_actions=11, lstm_hidden_size=128, num_card_indices_in_state=7):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.nb_player = None
         self.player_id = None
@@ -196,16 +203,19 @@ class NFSPPlayer(BasePokerPlayer):
         
         self.stack = 100
         self.hole_card_tuple_raw_indices = None # Store raw card indices for heuristic
-        self.q_model_path = q_model_path
-        self.policy_model_path = policy_model_path
-        self.q_optimizer_path = q_optimizer_path
-        self.policy_optimizer_path = policy_optimizer_path
+        
+        # Store shared paths
+        self.q_model_save_path = q_model_save_path
+        self.policy_model_save_path = policy_model_save_path
+        self.q_optimizer_save_path = q_optimizer_save_path
+        self.policy_optimizer_save_path = policy_optimizer_save_path
+        
         self.update_count = 0 # Number of times train_networks is called
         self.training = training
         self.best_response_mode = None
         self.current_state = None
         self.history = []
-        self.lstm_hidden_size = 128 
+        self.lstm_hidden_size = lstm_hidden_size
         self.q_net_hidden = None
         self.policy_net_hidden = None
         
@@ -234,27 +244,9 @@ class NFSPPlayer(BasePokerPlayer):
         self.card_reward_stat = self.initialize_card_stats()
         self.card_action_stat = self.initialize_card_action_stats()
         
-        self.num_actions = 11
-        
-        # State features (processed by process_state, then fed to networks):
-        # The total number of features in the state representation.
-        # This count includes:
-        # - 7 raw card indices (2 hole cards, 5 community cards) - these are processed by an nn.Embedding layer.
-        # The remaining features are concatenated with the embedded card features before being fed to the LSTM.
-        # - 1 main pot total
-        # - 6 player stacks (for all players)
-        # - 1 self stack
-        # - 24 last amounts (bet history over 4 streets for 6 players)
-        # - 6 player statuses (e.g., participating, folded)
-        # - 6 one-hot encoded player position features (derived from a scalar position)
-        # - 1 SPR (Stack-to-Pot Ratio)
-        # - 1 Pot odds
-        # - 1 Number of active players
-        # - 1 Effective stack
-        # - 30 street-specific action history features (for up to 5 opponents, 6 features each like fold/check/call/bet/raise counts and total invested on the current street)
-        # Total: 7 (cards) + 1+6+1+24+6+6+1+1+1+1+30 = 85 features.
-        self.num_feats = 85 
-        self.num_card_indices_in_state = 7 # For network's internal splitting
+        self.num_actions = num_actions
+        self.num_feats = num_feats 
+        self.num_card_indices_in_state = num_card_indices_in_state 
         self.card_embedding_dim = card_embedding_dim
 
         # For soft target updates
@@ -263,8 +255,31 @@ class NFSPPlayer(BasePokerPlayer):
         self.sl_update_freq = sl_update_freq
         self.br_update_freq = br_update_freq
 
-        self.initialize_networks()
+        # Assign shared networks and optimizers directly
+        self.q_net = shared_q_net
+        self.target_q_net = shared_target_q_net
+        self.policy_net = shared_policy_net
+        self.q_optimizer = shared_q_optimizer
+        self.policy_optimizer = shared_policy_optimizer
+
+        # Ensure networks are in the correct mode (train/eval) based on self.training
+        # This should be done after they are assigned.
+        if self.training:
+            if self.q_net: self.q_net.train()
+            if self.target_q_net: self.target_q_net.train() # Typically target_q_net mirrors q_net mode or is eval
+            if self.policy_net: self.policy_net.train()
+        else:
+            if self.q_net: self.q_net.eval()
+            if self.target_q_net: self.target_q_net.eval()
+            if self.policy_net: self.policy_net.eval()
         
+        # Initial sync of target_q_net with q_net is crucial and should happen once
+        # when shared_target_q_net is created/loaded in training.py.
+        # If self.target_q_net.load_state_dict(self.q_net.state_dict()) was here,
+        # it would cause issues if called by multiple agents on already synced shared nets.
+        # It's better handled centrally in training.py after shared q_net and target_q_net are ready.
+        print("NFSPPlayer: Using pre-initialized shared networks and optimizers.")
+
     def initialize_card_stats(self): # For hand_type_str based stats
         card_stats = {}
         # ranks_str is ordered from highest rank (A) to lowest (2) for easier iteration
@@ -293,65 +308,40 @@ class NFSPPlayer(BasePokerPlayer):
         return card_action_stats
     
     def initialize_networks(self):
-        q_model_loaded = False
-        policy_model_loaded = False
+        # This method is now simplified when using shared networks.
+        # The actual creation and loading of shared networks happens in training.py.
+        # This player instance receives already initialized (and possibly pre-loaded) shared networks.
+        # Ensure the networks are set to the correct device and mode (train/eval).
 
-        self.q_net = QNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size, card_embedding_dim=self.card_embedding_dim, num_card_indices=self.num_card_indices_in_state).to(self.device)
-        self.target_q_net = QNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size, card_embedding_dim=self.card_embedding_dim, num_card_indices=self.num_card_indices_in_state).to(self.device)
-        self.policy_net = PolicyNetwork(self.num_feats, self.num_actions, lstm_hidden_size=self.lstm_hidden_size, card_embedding_dim=self.card_embedding_dim, num_card_indices=self.num_card_indices_in_state).to(self.device)
-        
-        try:
-            self.q_net.load_state_dict(torch.load(self.q_model_path, map_location=self.device, weights_only=True))
-            q_model_loaded = True
-            print(f"Successfully loaded Q-network model from {self.q_model_path}")
-        except Exception as e:
-            print(f"Could not load Q-network model from {self.q_model_path}: {e}. Using fresh model.")
-            
-        try:
-            self.policy_net.load_state_dict(torch.load(self.policy_model_path, map_location=self.device, weights_only=True))
-            policy_model_loaded = True
-            print(f"Successfully loaded Policy-network model from {self.policy_model_path}")
-        except Exception as e:
-            print(f"Could not load Policy-network model from {self.policy_model_path}: {e}. Using fresh model.")
-            
-        self.target_q_net.load_state_dict(self.q_net.state_dict()) # Always sync target net with q_net's current state (loaded or fresh)
+        # Networks and optimizers are already assigned in __init__ from shared instances.
+        # The device transfer (.to(self.device)) for shared networks should happen in training.py 
+        # when the shared networks are first created.
 
-        self.q_optimizer = optim.Adam(self.q_net.parameters(), lr=learning_rate_br)
-        self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate_avg)
-        
-        if q_model_loaded: # Only try to load optimizer state if model was loaded
-            try:
-                self.q_optimizer.load_state_dict(torch.load(self.q_optimizer_path, map_location=self.device))
-                print(f"Successfully loaded Q-optimizer state from {self.q_optimizer_path}")
-            except Exception as e:
-                print(f"Could not load Q-optimizer state from {self.q_optimizer_path}: {e}. Using fresh optimizer state.")
-        else:
-            print(f"Q-network model was not loaded from checkpoint, using fresh Q-optimizer state.")
-
-        if policy_model_loaded: # Only try to load optimizer state if model was loaded
-            try:
-                self.policy_optimizer.load_state_dict(torch.load(self.policy_optimizer_path, map_location=self.device))
-                print(f"Successfully loaded Policy-optimizer state from {self.policy_optimizer_path}")
-            except Exception as e:
-                print(f"Could not load Policy-optimizer state from {self.policy_optimizer_path}: {e}. Using fresh optimizer state.")
-        else:
-            print(f"Policy-network model was not loaded from checkpoint, using fresh Policy-optimizer state.")
-            
+        # Set training/eval mode based on self.training status
         if self.training:
-            self.q_net.train()
-            self.policy_net.train()
-            self.target_q_net.train() # Target net also needs to be in train mode if it has dropout/batchnorm, though typically it doesn't for DQN target.
+            if self.q_net: self.q_net.train()
+            if self.target_q_net: self.target_q_net.train() # Or eval, depending on DQN target net practices
+            if self.policy_net: self.policy_net.train()
         else:
-            self.q_net.eval()
-            self.policy_net.eval()
-            self.target_q_net.eval()
-    
+            if self.q_net: self.q_net.eval()
+            if self.target_q_net: self.target_q_net.eval()
+            if self.policy_net: self.policy_net.eval()
+
+        # Initial sync of target_q_net with q_net is crucial and should happen once
+        # when shared_target_q_net is created/loaded in training.py.
+        # If self.target_q_net.load_state_dict(self.q_net.state_dict()) was here,
+        # it would cause issues if called by multiple agents on already synced shared nets.
+        # It's better handled centrally in training.py after shared q_net and target_q_net are ready.
+        print("NFSPPlayer: Using pre-initialized shared networks and optimizers.")
+
     def save_model(self):
-        torch.save(self.q_net.state_dict(), self.q_model_path)
-        torch.save(self.policy_net.state_dict(), self.policy_model_path)
-        torch.save(self.q_optimizer.state_dict(), self.q_optimizer_path)
-        torch.save(self.policy_optimizer.state_dict(), self.policy_optimizer_path)
-        
+        # Save the shared networks and optimizers using the shared paths
+        if self.q_net: torch.save(self.q_net.state_dict(), self.q_model_save_path)
+        if self.policy_net: torch.save(self.policy_net.state_dict(), self.policy_model_save_path)
+        if self.q_optimizer: torch.save(self.q_optimizer.state_dict(), self.q_optimizer_save_path)
+        if self.policy_optimizer: torch.save(self.policy_optimizer.state_dict(), self.policy_optimizer_save_path)
+        # print(f"NFSP Shared Models saved to {self.q_model_save_path}, {self.policy_model_save_path}") # Optional: more detailed print
+
     def update_target_network(self):
         # Soft update
         if self.polyak_tau is not None:

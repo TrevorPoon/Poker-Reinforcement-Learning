@@ -1,9 +1,13 @@
 from my_players.DQNPlayer import DQNPlayer
 from my_players.NFSPPlayer import NFSPPlayer
+from my_players.NFSPPlayer import QNetwork, PolicyNetwork
+from my_players.NFSPPlayer import learning_rate_br, learning_rate_avg
 from my_players.HonestPlayer_v2 import HonestPlayer
 from my_players.cardplayer import cardplayer
 from my_players.AllCall import AllCallPlayer
 from my_players.PPOPlayer import PPOPlayer
+from my_players.PPOPlayer import ActorCriticNetwork
+from my_players.PPOPlayer import PPO_LEARNING_RATE_ACTOR_CRITIC
 import utils.Charts 
 
 import os
@@ -21,6 +25,7 @@ plt.style.use('ggplot')
 
 # Add for CUDA optimization
 import torch
+import torch.optim as optim
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
 
@@ -62,8 +67,41 @@ METRICS_TO_LOG_COMBINED = ["VPIP", "PFR", "3-Bet", "Model_Loss", "Reward"]
 def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
     """Initialize RL agents based on the specified type"""
     agents = []
-    
-    # Determine agent type from scenario if not explicitly provided
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Default PPO network/player parameters (from PPOPlayer.py)
+    ppo_num_feats = 85
+    ppo_num_actions = 11
+    ppo_lstm_hidden_size = 128
+    ppo_card_embedding_dim = 16
+    ppo_num_card_indices_in_state = 7
+
+    # Default NFSP network/player parameters (from NFSPPlayer.py)
+    nfsp_num_feats = 85
+    nfsp_num_actions = 11
+    nfsp_lstm_hidden_size = 128
+    nfsp_card_embedding_dim = 16
+    nfsp_num_card_indices_in_state = 7
+    # Other NFSP specific hyperparams like polyak_tau for target net updates can be passed if needed
+    # For now, using defaults from NFSPPlayer if not specified in its __init__ for shared setup
+
+    # Shared instances for PPO
+    shared_ppo_network = None
+    shared_ppo_optimizer = None
+    ppo_model_save_path = ""
+    ppo_optimizer_save_path = ""
+
+    # Shared instances for NFSP
+    shared_nfsp_q_net = None
+    shared_nfsp_target_q_net = None
+    shared_nfsp_policy_net = None
+    shared_nfsp_q_optimizer = None
+    shared_nfsp_policy_optimizer = None
+    nfsp_q_model_save_path = ""
+    nfsp_policy_model_save_path = ""
+    nfsp_q_optimizer_save_path = ""
+    nfsp_policy_optimizer_save_path = ""
+
     if agent_type is None:
         if scenario.startswith('NFSP'):
             agent_type = 'NFSP'
@@ -78,19 +116,113 @@ def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
             optimizer_path = os.getcwd() + f'/models/dqn_agent{i+1}_optim_{scenario}.pt'
             agents.append(DQNPlayer(model_path, optimizer_path, training_mode))
     elif agent_type == 'NFSP':
+        if num_agents > 0 and shared_nfsp_q_net is None: # Create shared instances only once
+            # Create shared Q-Network and Target Q-Network
+            shared_nfsp_q_net = QNetwork(
+                input_raw_feat_dim=nfsp_num_feats,
+                num_actions=nfsp_num_actions,
+                lstm_hidden_size=nfsp_lstm_hidden_size,
+                card_embedding_dim=nfsp_card_embedding_dim,
+                num_card_indices=nfsp_num_card_indices_in_state
+            ).to(device)
+            shared_nfsp_target_q_net = QNetwork(
+                input_raw_feat_dim=nfsp_num_feats,
+                num_actions=nfsp_num_actions,
+                lstm_hidden_size=nfsp_lstm_hidden_size,
+                card_embedding_dim=nfsp_card_embedding_dim,
+                num_card_indices=nfsp_num_card_indices_in_state
+            ).to(device)
+            shared_nfsp_target_q_net.load_state_dict(shared_nfsp_q_net.state_dict()) # Initial sync
+            shared_nfsp_target_q_net.eval() # Target network is usually in eval mode
+
+            # Create shared Policy Network
+            shared_nfsp_policy_net = PolicyNetwork(
+                input_raw_feat_dim=nfsp_num_feats,
+                num_actions=nfsp_num_actions,
+                lstm_hidden_size=nfsp_lstm_hidden_size,
+                card_embedding_dim=nfsp_card_embedding_dim,
+                num_card_indices=nfsp_num_card_indices_in_state
+            ).to(device)
+
+            # Create shared optimizers
+            shared_nfsp_q_optimizer = optim.Adam(shared_nfsp_q_net.parameters(), lr=learning_rate_br)
+            shared_nfsp_policy_optimizer = optim.Adam(shared_nfsp_policy_net.parameters(), lr=learning_rate_avg)
+
+            # Define save paths for shared NFSP components
+            nfsp_q_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_net_{scenario}.pt'
+            nfsp_policy_model_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_net_{scenario}.pt'
+            nfsp_q_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_q_opt_{scenario}.pt'
+            nfsp_policy_optimizer_save_path = os.getcwd() + f'/models/nfsp_SHARED_policy_opt_{scenario}.pt'
+
+            # Attempt to load shared models and optimizers
+            try:
+                shared_nfsp_q_net.load_state_dict(torch.load(nfsp_q_model_save_path, map_location=device, weights_only=True))
+                shared_nfsp_target_q_net.load_state_dict(shared_nfsp_q_net.state_dict()) # Sync target after loading q_net
+                shared_nfsp_q_optimizer.load_state_dict(torch.load(nfsp_q_optimizer_save_path, map_location=device))
+                print(f"NFSP Shared Q-Net and Optimizer loaded from {nfsp_q_model_save_path}")
+            except Exception as e:
+                print(f"Could not load NFSP Shared Q-Net/Optimizer from {nfsp_q_model_save_path}: {e}. Using fresh Q-Net.")
+            try:
+                shared_nfsp_policy_net.load_state_dict(torch.load(nfsp_policy_model_save_path, map_location=device, weights_only=True))
+                shared_nfsp_policy_optimizer.load_state_dict(torch.load(nfsp_policy_optimizer_save_path, map_location=device))
+                print(f"NFSP Shared Policy-Net and Optimizer loaded from {nfsp_policy_model_save_path}")
+            except Exception as e:
+                print(f"Could not load NFSP Shared Policy-Net/Optimizer from {nfsp_policy_model_save_path}: {e}. Using fresh Policy-Net.")
+
         for i in range(num_agents):
-            q_model_path = os.getcwd() + f'/models/nfsp_q_agent{i+1}_{scenario}.pt'
-            policy_model_path = os.getcwd() + f'/models/nfsp_policy_agent{i+1}_{scenario}.pt'
-            q_optimizer_path = os.getcwd() + f'/models/nfsp_q_optim_agent{i+1}_{scenario}.pt'
-            policy_optimizer_path = os.getcwd() + f'/models/nfsp_policy_optim_agent{i+1}_{scenario}.pt'
-            agents.append(NFSPPlayer(q_model_path, policy_model_path, q_optimizer_path, policy_optimizer_path, training_mode))
+            # NFSPPlayer instances will use the shared networks and optimizers
+            agents.append(NFSPPlayer(
+                shared_q_net=shared_nfsp_q_net,
+                shared_target_q_net=shared_nfsp_target_q_net,
+                shared_policy_net=shared_nfsp_policy_net,
+                shared_q_optimizer=shared_nfsp_q_optimizer,
+                shared_policy_optimizer=shared_nfsp_policy_optimizer,
+                q_model_save_path=nfsp_q_model_save_path,
+                policy_model_save_path=nfsp_policy_model_save_path,
+                q_optimizer_save_path=nfsp_q_optimizer_save_path,
+                policy_optimizer_save_path=nfsp_policy_optimizer_save_path,
+                training=training_mode,
+                # Pass other necessary NFSPPlayer hyperparams, using defaults if not changed
+                num_feats=nfsp_num_feats, 
+                num_actions=nfsp_num_actions, 
+                lstm_hidden_size=nfsp_lstm_hidden_size,
+                card_embedding_dim=nfsp_card_embedding_dim,
+                num_card_indices_in_state=nfsp_num_card_indices_in_state
+            ))
     elif agent_type == 'PPO':
+        if num_agents > 0 and shared_ppo_network is None:
+            shared_ppo_network = ActorCriticNetwork(
+                input_raw_feat_dim=ppo_num_feats,
+                num_actions=ppo_num_actions,
+                lstm_hidden_size=ppo_lstm_hidden_size,
+                card_embedding_dim=ppo_card_embedding_dim,
+                num_card_indices=ppo_num_card_indices_in_state
+            ).to(device)
+            shared_ppo_optimizer = optim.Adam(shared_ppo_network.parameters(), lr=PPO_LEARNING_RATE_ACTOR_CRITIC)
+            
+            # Define save paths for the shared model and optimizer
+            ppo_model_save_path = os.getcwd() + f'/models/ppo_SHARED_actor_critic_{scenario}.pt'
+            ppo_optimizer_save_path = os.getcwd() + f'/models/ppo_SHARED_optimizer_{scenario}.pt'
+
+            # Attempt to load the shared model/optimizer once here
+            try:
+                shared_ppo_network.load_state_dict(torch.load(ppo_model_save_path, map_location=device, weights_only=True))
+                shared_ppo_optimizer.load_state_dict(torch.load(ppo_optimizer_save_path, map_location=device))
+                print(f"PPO Shared Model and Optimizer loaded from {ppo_model_save_path}")
+            except Exception as e:
+                print(f"Could not load PPO Shared Model/Optimizer from {ppo_model_save_path}: {e}. Using fresh shared model.")
+
         for i in range(num_agents):
-            actor_model_path = os.getcwd() + f'/models/ppo_actor_agent{i+1}_{scenario}.pt'
-            critic_model_path = os.getcwd() + f'/models/ppo_critic_agent{i+1}_{scenario}.pt'
-            actor_optimizer_path = os.getcwd() + f'/models/ppo_actor_optim_agent{i+1}_{scenario}.pt'
-            critic_optimizer_path = os.getcwd() + f'/models/ppo_critic_optim_agent{i+1}_{scenario}.pt'
-            agents.append(PPOPlayer(actor_model_path, critic_model_path, actor_optimizer_path, critic_optimizer_path, training_mode))
+            agents.append(PPOPlayer(shared_actor_critic_net=shared_ppo_network,
+                                    shared_optimizer=shared_ppo_optimizer,
+                                    model_save_path=ppo_model_save_path,
+                                    optimizer_save_path=ppo_optimizer_save_path,
+                                    training=training_mode,
+                                    num_feats=ppo_num_feats,
+                                    num_actions=ppo_num_actions,
+                                    lstm_hidden_size=ppo_lstm_hidden_size,
+                                    card_embedding_dim=ppo_card_embedding_dim,
+                                    num_card_indices_in_state=ppo_num_card_indices_in_state))
     
     return agents
 

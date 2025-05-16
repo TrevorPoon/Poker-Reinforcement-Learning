@@ -292,32 +292,29 @@ class ActorCriticNetwork(nn.Module):
 
 # --- PPO Player ---
 class PPOPlayer(BasePokerPlayer):
-    def __init__(self, actor_model_path, critic_model_path, 
-                 actor_optimizer_path, critic_optimizer_path, 
+    def __init__(self, shared_actor_critic_net, shared_optimizer,
+                 model_save_path, optimizer_save_path, 
                  training=True,
                  card_embedding_dim=16, num_feats=85, 
                  num_card_indices_in_state=7, num_actions=11, 
-                 lstm_hidden_size=128):
+                 lstm_hidden_size=128): # card_embedding_dim is a network param, but kept for consistency if player logic needs it
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Store paths directly
-        self.actor_model_path = actor_model_path
-        self.critic_model_path = critic_model_path # Note: PPO typically has one actor-critic network
-        self.actor_optimizer_path = actor_optimizer_path
-        self.critic_optimizer_path = critic_optimizer_path # Optimizer for the single AC network
+        # Store paths for the shared model/optimizer
+        self.model_save_path = model_save_path
+        self.optimizer_save_path = optimizer_save_path
         
         self.training = training
         
-        self.num_feats = num_feats # From NFSPPlayer
-        self.num_card_indices_in_state = num_card_indices_in_state # From NFSPPlayer
-        self.num_actions = num_actions # From NFSPPlayer
-        self.lstm_hidden_size = lstm_hidden_size
+        self.num_feats = num_feats 
+        self.num_card_indices_in_state = num_card_indices_in_state 
+        self.num_actions = num_actions 
+        self.lstm_hidden_size = lstm_hidden_size # Used for LSTM hidden state initialization
 
-        self.actor_critic_net = ActorCriticNetwork(self.num_feats, self.num_actions,
-                                                   lstm_hidden_size=self.lstm_hidden_size,
-                                                   card_embedding_dim=card_embedding_dim,
-                                                   num_card_indices=self.num_card_indices_in_state).to(self.device)
-        self.optimizer = optim.Adam(self.actor_critic_net.parameters(), lr=PPO_LEARNING_RATE_ACTOR_CRITIC)
+        # Use the shared network and optimizer
+        self.actor_critic_net = shared_actor_critic_net
+        self.optimizer = shared_optimizer
+        
         self.memory = PPOMemory()
 
         self.hole_card_tuple_raw_indices = None
@@ -361,22 +358,21 @@ class PPOPlayer(BasePokerPlayer):
             self.actor_critic_net.eval()
 
     def save_model(self):
-        # path = f"{self.model_path_prefix}_actor_critic.pt"
-        # Use the direct paths
-        torch.save(self.actor_critic_net.state_dict(), self.actor_model_path) # Assuming actor_model_path is for the combined net
-        # opt_path = f"{self.model_path_prefix}_optimizer.pt"
-        torch.save(self.optimizer.state_dict(), self.actor_optimizer_path) # Assuming actor_optimizer_path for the AC net optimizer
-        print(f"PPO Model saved to {self.actor_model_path} and optimizer to {self.actor_optimizer_path}")
+        # Save the shared network and optimizer
+        torch.save(self.actor_critic_net.state_dict(), self.model_save_path)
+        torch.save(self.optimizer.state_dict(), self.optimizer_save_path)
+        print(f"PPO Shared Model saved to {self.model_save_path} and optimizer to {self.optimizer_save_path}")
 
     def load_model(self):
+        # Load the shared network and optimizer
+        # Note: Loading is typically done once by the training script before distributing the shared net.
+        # If called by each agent, it would just reload the same shared state.
         try:
-            # path = f"{self.model_path_prefix}_actor_critic.pt"
-            self.actor_critic_net.load_state_dict(torch.load(self.actor_model_path, map_location=self.device, weights_only=True))
-            # opt_path = f"{self.model_path_prefix}_optimizer.pt"
-            self.optimizer.load_state_dict(torch.load(self.actor_optimizer_path, map_location=self.device))
-            print(f"PPO Model loaded from {self.actor_model_path} and optimizer from {self.actor_optimizer_path}")
+            self.actor_critic_net.load_state_dict(torch.load(self.model_save_path, map_location=self.device, weights_only=True))
+            self.optimizer.load_state_dict(torch.load(self.optimizer_save_path, map_location=self.device))
+            print(f"PPO Shared Model loaded from {self.model_save_path} and optimizer from {self.optimizer_save_path}")
         except Exception as e:
-            print(f"Could not load PPO model from {self.actor_model_path}: {e}. Using fresh model.")
+            print(f"Could not load PPO Shared Model from {self.model_save_path} or optimizer from {self.optimizer_save_path}: {e}. Using fresh/current shared model state.")
 
     # --- State Processing & Action (Reused/Adapted from NFSP) ---
     def get_state(self, community_card_indices_tuple, round_state):
