@@ -1,6 +1,6 @@
 # Poker Reinforcement Learning
 
-A ML project focused on developing  AI agents for playing poker, with primary emphasis on Texas Hold'em.
+A ML project focused on developing AI agents for playing poker, with primary emphasis on Texas Hold'em.
 
 ## Project Description
 
@@ -13,15 +13,14 @@ The project addresses the complex challenge of decision-making under uncertainty
 * Make optimal betting decisions based on incomplete information
 * Balance exploitative and unexploitable play
 
-The AI agents employ reinforcement learning algorithms including Deep Q-Networks (DQN) and Neural Fictitious Self Play (NFSP) to discover effective poker strategies through extensive training.
+The AI agents employ reinforcement learning algorithms including PPO to discover effective poker strategies through extensive training.
 
 
-## VPIP of DQN Agents in a 6-max 100BB Cash Game
+## Poker Statistics of PPO Agents in a 6-max 100BB Cash Game
 
-![VPIP of DQN Agents in a 6-max 100BB Cash Game](./images/vpip_DQNs.png)
+![VPIP of PPO Agents in a 6-max 100BB Cash Game](./images/Poker_Statistics.png)
 
-## Expected Value for your hand
-![Expected Value for your hand](./images/DQN_vs_AllCall_DNQ_Player1_hand_reward_heatmap.png)
+![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
 
 ## Installation Instructions
 
@@ -43,11 +42,11 @@ mkdir -p models result/runs result/log images
 ### Training an Agent
 
 ```bash
-# Basic training with default parameters (DQN vs DQN)
+# Basic training with default parameters (PPO vs PPO)
 python src/training.py  
 
-# Training a DQN agent against honest players for 50,000 episodes
-python src/training.py --scenario DQN_vs_Honest --episodes 50000  
+# Training a PPO agent against honest players for 50,000 episodes
+python src/training.py --scenario PPO_vs_Honest --episodes 50000  
 
 # Training an NFSP agent with specific game parameters
 python src/training.py --scenario NFSP_vs_AllCall --initial-stack 100 --small-blind 0.5 --max-rounds 36
@@ -75,7 +74,7 @@ This provides visualizations of training metrics including:
 | --------------- | -------------------------------------------- | ------------ |
 | --episodes      | Number of training episodes                  | 10,000,000   |
 | --log-interval  | Frequency of logging metrics                 | 100          |
-| --scenario      | Training scenario                            | DQN\_vs\_DQN |
+| --scenario      | Training scenario                            | PPO\_vs\_PPO |
 | --training      | Enable training mode                         | True         |
 | --agents        | Number of agents (auto-set if not specified) | None         |
 | --max-rounds    | Maximum rounds per poker game                | 36           |
@@ -84,72 +83,6 @@ This provides visualizations of training metrics including:
 | --plot-interval | Frequency of generating visualizations       | 1000         |
 | --gc-interval   | Garbage collection frequency                 | 10000        |
 
-### Available Scenarios
-
-* `DQN_vs_Honest`: DQN agent vs rule-based players
-* `DQN_vs_AllCall`: DQN agent vs players who always call
-* `DQN_vs_DQN`: Multiple DQN agents playing against each other
-* `NFSP_vs_Honest`: NFSP agent vs rule-based players
-* `NFSP_vs_AllCall`: NFSP agent vs players who always call
-* `NFSP_vs_NFSP`: Multiple NFSP agents playing against each other
-* `NFSP_vs_DQN`: NFSP agents vs DQN agents
-
-## Training Details
-
-### Training Loop
-
-The training loop:
-
-* Initializes agents
-* Sets up game environment
-* Runs self-play poker episodes
-* Collects experience
-* Periodically updates models and logs metrics
-* Generates plots and heatmaps
-
-### Metric Tracking
-
-Metrics logged include:
-
-* **VPIP**: Voluntarily Put Money In Pot
-* **PFR**: Pre-Flop Raise rate
-* **3-Bet**: Re-raise frequency
-* **Model Loss**: Neural network training loss
-* **Reward**: Accumulated chips won
-
-### Visualization
-
-Generated charts include:
-
-* **Action Proportions**: Frequency of each action per street
-* **Hand Reward Heatmaps**: EV of each starting hand
-* **GTO-Style Action Grids**: Frequency of action choices by hand/street
-
-## Model Architecture
-
-### Deep Q-Network (DQN)
-
-* **Input**: 46-dim vector (cards, pot, stacks, betting history)
-* **Network**:
-
-  * Input layer (46)
-  * Hidden layer 1 (128, ReLU)
-  * Hidden layer 2 (128, ReLU)
-  * Hidden layer 3 (64, ReLU)
-  * Output layer (11 actions)
-
-### Neural Fictitious Self-Play (NFSP)
-
-* Combines Q-network (reinforcement learning) and policy network (supervised learning)
-* Trains toward Nash-equilibrium style play in multi-agent settings
-
-### Exploration Strategy
-
-* Epsilon-greedy:
-
-  * Initial epsilon: 0.2
-  * Final epsilon: 0.001
-  * Decay: 0.9
 
 ## License and Attribution
 
