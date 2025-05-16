@@ -15,16 +15,17 @@ The project addresses the complex challenge of decision-making under uncertainty
 
 The AI agents employ reinforcement learning algorithms including PPO to discover effective poker strategies through extensive training.
 
+## Poker Statistics
 
-## Poker Statistics of PPO Agents in a 6-max 100BB Cash Game
+###  PPO Agents in a 6-max 100BB Cash Game
 
 ![VPIP of PPO Agents in a 6-max 100BB Cash Game](./images/Poker_Statistics.png)
 
-## Action Tendency of the trained PPO agent in the Preflop Street
+### Action Tendency of the trained PPO agent in the Preflop Street
 
 ![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
 
-## Addressed Question
+## Addressed Questions
 
 ### Why PPO is a better choice than NFSP and DQN?
 
@@ -118,9 +119,6 @@ This provides visualizations of training metrics including:
 
 Special thanks to **PyPokerEngine** for providing the poker simulation framework.
 
-## Authors
-
-* **Trevor Poon** – Initial work
 
 ---
 
