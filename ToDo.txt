@@ -1,5 +1,6 @@
 Raising Actions
 Understand the code of training and Player
+EV should be averaging
 Evaluation 
 
 Check

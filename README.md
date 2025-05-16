@@ -20,6 +20,8 @@ The AI agents employ reinforcement learning algorithms including PPO to discover
 
 ![VPIP of PPO Agents in a 6-max 100BB Cash Game](./images/Poker_Statistics.png)
 
+## Action Tendency of the trained PPO agent in the Preflop Street
+
 ![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
 
 ## Installation Instructions
