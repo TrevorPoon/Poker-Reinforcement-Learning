@@ -39,78 +39,6 @@ def community_card_to_tuple_indices(community_card_pokerlib):
         new_community_card_indices.append(52) # Padding token
     return tuple(new_community_card_indices)
 
-@staticmethod
-def process_state(s_tuple): # s_tuple is raw state from get_state
-    s_list = list(s_tuple)
-    
-    # Normalize features
-    # s_list[7] = Pot size: (pot - 200) / 200 (approx avg pot 200, range 0-many)
-    s_list[7] = (s_list[7] - 200.0) / 200.0
-    
-    # s_list[8-13] = Player stacks (6 features): (stack - 100) / 50 (approx avg stack 100, range 0-200+)
-    for i in range(8, 14):
-        s_list[i] = (s_list[i] - 100.0) / 50.0
-    
-    # s_list[14] = Self stack: (stack - 100) / 50
-    s_list[14] = (s_list[14] - 100.0) / 50.0
-    
-    # s_list[15-38] = last_amounts (24 features, 6 players * 4 streets): (amount - 50) / 50 (approx avg bet 50)
-    for i in range(15, 39):
-        s_list[i] = (s_list[i] - 50.0) / 50.0
-
-    # s_list[39-44] = player_statuses_list (6 features): already 0 or 1
-
-    # s_list[7+38] (index 45 of s_list) = my_position_relative_to_dealer (scalar 0-5)
-    # Convert scalar position (index 45 in original s_list, which is s_list[7+38]) to one-hot
-    pos_scalar_original_idx = 7 + 38 
-    if pos_scalar_original_idx < len(s_list):
-        pos_scalar = int(s_list[pos_scalar_original_idx])
-        pos_one_hot = [0.0] * MAX_PLAYERS
-        if 0 <= pos_scalar < MAX_PLAYERS:
-            pos_one_hot[pos_scalar] = 1.0
-        # Replace scalar position with one-hot encoding
-        s_list = s_list[:pos_scalar_original_idx] + pos_one_hot + s_list[pos_scalar_original_idx+1:]
-    
-    # After one-hot encoding, the features from this point onwards are shifted.
-    # Original indices for SPR, pot_odds, active_players, eff_stack, heuristic_strength were:
-    # 7+38+1 (SPR), 7+38+2 (PotOdds), 7+38+3 (ActivePlayers), 7+38+4 (EffStack), 7+38+5 (Heuristic)
-    # New base index after pos_scalar (1) is replaced by pos_one_hot (6) -> net +5 shift
-    base_idx_after_pos = pos_scalar_original_idx + MAX_PLAYERS # Start of features after one-hot position
-
-    # s_list[base_idx_after_pos + 0] = SPR: (spr - 10) / 10 (common SPR around 10)
-    if base_idx_after_pos < len(s_list):
-        s_list[base_idx_after_pos] = (s_list[base_idx_after_pos] - 10.0) / 10.0
-    
-    # s_list[base_idx_after_pos + 1] = Pot odds: (odds - 0.33) / 0.15 (typical odds around 0.2-0.5)
-    if base_idx_after_pos + 1 < len(s_list):
-        s_list[base_idx_after_pos + 1] = (s_list[base_idx_after_pos + 1] - 0.33) / 0.15
-
-    # s_list[base_idx_after_pos + 2] = Active players count: (count - 3) / 2 (avg 2-4 players)
-    if base_idx_after_pos + 2 < len(s_list):
-            s_list[base_idx_after_pos + 2] = (s_list[base_idx_after_pos + 2] - 3.0) / 2.0
-    
-    # s_list[base_idx_after_pos + 3] = Effective stack: (eff_stack - 100) / 50
-    if base_idx_after_pos + 3 < len(s_list):
-        s_list[base_idx_after_pos + 3] = (s_list[base_idx_after_pos + 3] - 100.0) / 50.0
-    
-    # Heuristic strength was at base_idx_after_pos + 4, now removed.
-    # Normalization for street_action_hist_features (opponent actions)
-    # These start after the features above. If heuristic was removed, they are now at base_idx_after_pos + 4
-    street_hist_start_idx = base_idx_after_pos + 4 
-
-    num_opp_street_hist_sets = 5 # Max 5 opponents
-    features_per_opp_street_hist = 6 # fold, check, call, bet, raise, invested
-    for opp_set in range(num_opp_street_hist_sets):
-        base_street_hist_idx = street_hist_start_idx + (opp_set * features_per_opp_street_hist)
-        if len(s_list) > base_street_hist_idx + 4: # call, bet, raise counts
-            for i in range(2, 5): 
-                s_list[base_street_hist_idx + i] = s_list[base_street_hist_idx + i] / 3.0 # Normalize counts (e.g. max 3 actions)
-        if len(s_list) > base_street_hist_idx + 5: # total_invested_this_street
-            s_list[base_street_hist_idx + 5] = (s_list[base_street_hist_idx + 5] - 100.0) / 100.0 # Normalize investment
-    
-    # Expected final size: 7(cards) + 38(pot,stacks,hist,status) + 6(pos_onehot) + 4(spr,odds,active,eff) + 30(street_hist_opp) = 85
-    return tuple(s_list)
-
 # --- Stat Initialization Helper Functions (from NFSPPlayer) ---
 def initialize_card_stats_static(): # Renamed to avoid collision if PPOPlayer also has a method
     card_stats = {}
@@ -295,6 +223,8 @@ class PPOPlayer(BasePokerPlayer):
     def __init__(self, shared_actor_critic_net, shared_optimizer,
                  model_save_path, optimizer_save_path, 
                  training=True,
+                 initial_stack=100, # Added initial_stack
+                 small_blind=1,     # Added small_blind (can be used for reference if needed)
                  card_embedding_dim=16, num_feats=85, 
                  num_card_indices_in_state=7, num_actions=11, 
                  lstm_hidden_size=128): # card_embedding_dim is a network param, but kept for consistency if player logic needs it
@@ -306,6 +236,9 @@ class PPOPlayer(BasePokerPlayer):
         
         self.training = training
         
+        self.initial_stack = initial_stack # Store initial_stack
+        self.small_blind_ref = small_blind # Store small_blind for reference
+
         self.num_feats = num_feats 
         self.num_card_indices_in_state = num_card_indices_in_state 
         self.num_actions = num_actions 
@@ -321,7 +254,7 @@ class PPOPlayer(BasePokerPlayer):
         self.current_lstm_hidden = None
         self.episode_transitions = [] # Store (state, action, log_prob, reward, value, done, next_state) for current hand
 
-        self.stack = 100 # Initial stack, will be updated
+        self.stack = self.initial_stack # Initialize stack with initial_stack
         self.raisesizes = [0.33, 0.5, 0.75, 1, 1.5, 2.0, 2.5, 3.0] # From NFSPPlayer
         self.update_count = 0
         self.last_loss_actor = None
@@ -413,6 +346,76 @@ class PPOPlayer(BasePokerPlayer):
 
         return tuple(current_state_list)
 
+    def process_state(self, s_tuple): # s_tuple is raw state from get_state
+        s_list = list(s_tuple)
+        
+        # Dynamic normalization values based on initial_stack
+        norm_pot_avg = self.initial_stack * 2.0 
+        norm_pot_range = self.initial_stack * 2.0 
+        norm_stack_avg = self.initial_stack
+        norm_stack_range = self.initial_stack 
+        norm_bet_avg = self.initial_stack / 2.0 
+        norm_bet_range = self.initial_stack / 2.0
+    
+        # s_list[7] = Pot size
+        if len(s_list) > 7: s_list[7] = (s_list[7] - norm_pot_avg) / norm_pot_range
+        
+        # s_list[8-13] = Player stacks (6 features)
+        for i in range(8, 14):
+            if len(s_list) > i: s_list[i] = (s_list[i] - norm_stack_avg) / norm_stack_range
+        
+        # s_list[14] = Self stack
+        if len(s_list) > 14: s_list[14] = (s_list[14] - norm_stack_avg) / norm_stack_range
+        
+        # s_list[15-38] = last_amounts (24 features, 6 players * 4 streets)
+        for i in range(15, 39):
+            if len(s_list) > i: s_list[i] = (s_list[i] - norm_bet_avg) / norm_bet_range
+    
+        # s_list[39-44] = player_statuses_list (6 features): already 0 or 1
+    
+        pos_scalar_original_idx = 7 + 38 
+        if pos_scalar_original_idx < len(s_list):
+            pos_scalar = int(s_list[pos_scalar_original_idx])
+            pos_one_hot = [0.0] * MAX_PLAYERS
+            if 0 <= pos_scalar < MAX_PLAYERS:
+                pos_one_hot[pos_scalar] = 1.0
+            s_list = s_list[:pos_scalar_original_idx] + pos_one_hot + s_list[pos_scalar_original_idx+1:]
+        
+        base_idx_after_pos = pos_scalar_original_idx + MAX_PLAYERS
+    
+        # SPR: (spr - 10) / 10
+        if base_idx_after_pos < len(s_list):
+            s_list[base_idx_after_pos] = (s_list[base_idx_after_pos] - 10.0) / 10.0
+        
+        # Pot odds: (odds - 0.33) / 0.15
+        if base_idx_after_pos + 1 < len(s_list):
+            s_list[base_idx_after_pos + 1] = (s_list[base_idx_after_pos + 1] - 0.33) / 0.15
+    
+        # Active players count: (count - 3) / 2
+        if base_idx_after_pos + 2 < len(s_list):
+                s_list[base_idx_after_pos + 2] = (s_list[base_idx_after_pos + 2] - 3.0) / 2.0
+        
+        # Effective stack
+        if base_idx_after_pos + 3 < len(s_list):
+            s_list[base_idx_after_pos + 3] = (s_list[base_idx_after_pos + 3] - norm_stack_avg) / norm_stack_range
+        
+        street_hist_start_idx = base_idx_after_pos + 4 
+    
+        num_opp_street_hist_sets = 5 
+        features_per_opp_street_hist = 6 
+        for opp_set in range(num_opp_street_hist_sets):
+            base_street_hist_idx = street_hist_start_idx + (opp_set * features_per_opp_street_hist)
+            # Normalize counts (e.g. max 3 actions) for call, bet, raise
+            if len(s_list) > base_street_hist_idx + 4: 
+                for i in range(2, 5): # Indices for call_count, bet_count, raise_count within the 6 features
+                    if len(s_list) > base_street_hist_idx +i :
+                         s_list[base_street_hist_idx + i] = s_list[base_street_hist_idx + i] / 3.0
+            # Normalize total_invested_this_street
+            if len(s_list) > base_street_hist_idx + 5: 
+                s_list[base_street_hist_idx + 5] = (s_list[base_street_hist_idx + 5] - norm_bet_avg) / norm_bet_range
+        
+        # Expected final size: 7(cards) + 38(pot,stacks,hist,status) + 6(pos_onehot) + 4(spr,odds,active,eff) + 30(street_hist_opp) = 85
+        return tuple(s_list)
 
     def declare_action(self, valid_actions, hole_card_pokerlib, round_state):
         hole_card_idx1 = card_to_int(hole_card_pokerlib[0])
@@ -423,7 +426,7 @@ class PPOPlayer(BasePokerPlayer):
         raw_state_tuple = self.get_state(community_card_indices_tuple, round_state)
         # IMPORTANT: Ensure process_state produces a state compatible with your network input
         # and that its output length matches self.num_feats.
-        current_processed_state = process_state(raw_state_tuple) 
+        current_processed_state = self.process_state(raw_state_tuple) 
         
         # Ensure state has correct number of features for the network. Pad if necessary.
         # This is a simplified padding, ensure it matches how you handle variable feature sets.
@@ -718,7 +721,7 @@ class PPOPlayer(BasePokerPlayer):
                 break
         
         # Calculate reward for the entire hand
-        reward_for_hand = (final_stack - self.stack) / 100.0 # Normalize reward (e.g., by BBs or initial stack)
+        reward_for_hand = (final_stack - self.stack) / self.initial_stack # Normalize by initial_stack
         self.stack = final_stack # Update stack for next hand calculation
         self.accumulated_reward += reward_for_hand
 

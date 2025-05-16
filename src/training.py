@@ -64,7 +64,7 @@ def reset_to_zero(df):
 
 METRICS_TO_LOG_COMBINED = ["VPIP", "PFR", "3-Bet", "Model_Loss", "Reward"]
 
-def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
+def initialize_agents(scenario, num_agents, training_mode, args, agent_type=None):
     """Initialize RL agents based on the specified type"""
     agents = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -218,6 +218,8 @@ def initialize_agents(scenario, num_agents, training_mode, agent_type=None):
                                     model_save_path=ppo_model_save_path,
                                     optimizer_save_path=ppo_optimizer_save_path,
                                     training=training_mode,
+                                    initial_stack=args.initial_stack,
+                                    small_blind=args.small_blind,
                                     num_feats=ppo_num_feats,
                                     num_actions=ppo_num_actions,
                                     lstm_hidden_size=ppo_lstm_hidden_size,
@@ -498,7 +500,7 @@ def main():
     logger.info(f"Scenario: {scenario}, Episodes: {num_episodes}, Agents: {num_agents}")
     
     # dataframes = initialize_dataframes(scenario) # No longer needed
-    rl_agents = initialize_agents(scenario, num_agents, training_mode, agent_type)
+    rl_agents = initialize_agents(scenario, num_agents, training_mode, args, agent_type)
     
     # Create a list of all player algorithms for shuffling
     all_player_algorithms = list(rl_agents)
