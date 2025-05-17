@@ -1,0 +1,5 @@
+2025-05-17 22:48:59,595 - __main__ - INFO - Starting evaluation for model: models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt, Hands: 10000
+2025-05-17 22:48:59,602 - __main__ - INFO - Output will be saved to: evaluation_results/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53_20250517_224859
+2025-05-17 22:49:01,737 - __main__ - INFO - Successfully loaded model weights from models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt
+2025-05-17 22:50:02,905 - __main__ - INFO - Simulating hand 100/10000
+2025-05-17 22:50:43,049 - __main__ - INFO - Simulating hand 200/10000

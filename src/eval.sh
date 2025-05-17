@@ -1,10 +1,10 @@
 #!/bin/sh
 #SBATCH -N 1	  # nodes requested
 #SBATCH -n 1	  # tasks requested
-#SBATCH --partition=Teach-LongJobs
+#SBATCH --partition=Teach-Standard
 #SBATCH --gres=gpu:8
 #SBATCH --mem=96000  # memory in Mb
-#SBATCH --time=0-80:00:00
+#SBATCH --time=0-08:00:00
 #SBATCH --output=result/slurm/slurm-%j.out   # %j = Job ID
 
 export CUDA_HOME=/opt/cuda-9.0.176.1/
@@ -35,5 +35,5 @@ export DATASET_DIR=${TMP}/datasets/
 
 source /home/${STUDENT_ID}/miniconda3/bin/activate poker
 
-python src/training.py --scenario PPO_vs_PPO --initial-stack 1000 --small-blind 5
+python src/evaluate.py --model_path=models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt 
 
