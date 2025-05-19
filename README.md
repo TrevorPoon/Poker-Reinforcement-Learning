@@ -21,9 +21,13 @@ The AI agents employ reinforcement learning algorithms including PPO to discover
 
 ![VPIP of PPO Agents in a 6-max 100BB Cash Game](./images/Poker_Statistics.png)
 
-### Action Tendency of the trained PPO agent in the Preflop Street
+### Action Tendency of the trained PPO agent in the Preflop Street with 10,000 Training Episodes
 
-![Action Tendency of the trained agent in the Preflop Street](./images/preflop_action_freq.png)
+![Action Tendency of the trained agent in the Preflop Street with 10000 epsidoes](./images/preflop_action_freq.png)
+
+### Action Tendency of the trained PPO agent in the Preflop Street with 100,000 Training Episodes
+
+![Action Tendency of the trained agent in the Preflop Street with 100000 epsidoes](./evaluation_results/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53_20250517_225632/PPO_Eval_PREFLOP__SB_BB_F_F_F_GTO_action_grid.png)
 
 ## 3. Addressed Questions
 
