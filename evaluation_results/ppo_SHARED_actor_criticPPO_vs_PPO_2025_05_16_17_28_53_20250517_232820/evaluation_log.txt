@@ -1,0 +1,18 @@
+2025-05-17 23:28:20,903 - __main__ - INFO - Starting evaluation for model: models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt, Hands: 1000
+2025-05-17 23:28:20,953 - __main__ - INFO - Output will be saved to: evaluation_results/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53_20250517_232820
+2025-05-17 23:28:22,684 - __main__ - INFO - Successfully loaded model weights from models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt
+2025-05-17 23:29:28,197 - __main__ - INFO - Simulating hand 100/1000
+2025-05-17 23:30:21,272 - __main__ - INFO - Simulating hand 200/1000
+2025-05-17 23:31:17,416 - __main__ - INFO - Simulating hand 300/1000
+2025-05-17 23:32:07,832 - __main__ - INFO - Simulating hand 400/1000
+2025-05-17 23:32:55,562 - __main__ - INFO - Simulating hand 500/1000
+2025-05-17 23:33:44,067 - __main__ - INFO - Simulating hand 600/1000
+2025-05-17 23:34:36,841 - __main__ - INFO - Simulating hand 700/1000
+2025-05-17 23:35:27,888 - __main__ - INFO - Simulating hand 800/1000
+2025-05-17 23:36:17,745 - __main__ - INFO - Simulating hand 900/1000
+2025-05-17 23:37:10,440 - __main__ - INFO - Simulating hand 1000/1000
+2025-05-17 23:37:10,681 - __main__ - INFO - Finished 1000 simulation hands. Total decisions logged: 44526
+2025-05-17 23:37:10,740 - __main__ - INFO - Processing 4816 unique spots.
+2025-05-17 23:37:10,741 - __main__ - INFO - Analyzing spot: PREFLOP_[]_SB_BB_F_R_F_F (264 decisions)
+2025-05-17 23:37:12,143 - __main__ - INFO - Saved GTO action grid to evaluation_results/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53_20250517_232820/PPO_Eval_PREFLOP__SB_BB_F_R_F_F_GTO_action_grid.png
+2025-05-17 23:37:12,371 - __main__ - INFO - Saved pie chart to evaluation_results/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53_20250517_232820/PPO_Eval_PREFLOP__SB_BB_F_R_F_F_action_pie.png

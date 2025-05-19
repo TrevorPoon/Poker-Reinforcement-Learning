@@ -35,5 +35,5 @@ export DATASET_DIR=${TMP}/datasets/
 
 source /home/${STUDENT_ID}/miniconda3/bin/activate poker
 
-python src/evaluate.py --model_path=models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt 
+python src/evaluate.py --model_path=models/ppo_SHARED_actor_criticPPO_vs_PPO_2025_05_16_17_28_53.pt --num_hands 10000
 
